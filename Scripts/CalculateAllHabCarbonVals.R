@@ -53,17 +53,16 @@ hab_by_year <- read.csv("Inputs/HabByYears.csv", strip.white = TRUE) %>%
 
 
 
-
 #--------- read in plantation data ---------
 
-plantation <- read.csv("R_code/CarbonAnalysis/Inputs/plantation_carbon.csv") %>% select(-X)
+plantation <- read.csv("Outputs/plantation_carbon.csv") %>% select(-X)
 names(plantation)
 
 
 #----- carbon in primary, restored and once-logged --------
 # get carbon of restored, primary and once-logged from Philipson 2020
 #uses Philipson 2020 code from: https://github.com/PhilipsonChristopher/CarbonRecovery/blob/master/Fig1/Figure1Code.R
-data <- read.csv("R_code/CarbonAnalysis/Inputs/Philipson20_PlotData2.csv")
+data <- read.csv("RawData/Philipson20_PlotData2.csv")
 
 ## Seperate Logged forest plots from unlogged plots
 Logged <- subset(data, Forest=="Logged")
@@ -119,7 +118,7 @@ round(apply(m1_mer$t, 2, quantile, c(0.025, 0.975)), 2)
 # NEWDAT <- rbind(NEWDATa, NEWDATb)
 # NEWDAT$ACD<-0
 
-# ------extend philipson to 60 yr estimation --------
+# ------Modify philipson code to etend to 60 yr estimation --------
 #GC CODE; EXTEND above code TO PREDICT 60 YEARS INTO THE FUTURE 
 (NEWDATa<-expand.grid(YearsSinceLogging =seq(from=0, to=60, by=1), FACE=levels(Logged$FACE)[1]))
 (NEWDATb<-expand.grid(YearsSinceLogging =seq(from=0, to=60, by=1), FACE=levels(Logged$FACE)[2]))
@@ -172,7 +171,7 @@ Fig1 <- ggplot(data= Logged, aes(YearsSinceLogging, ACD, FACE))+
 Fig1
 
 
-#### Single panel version for supplement  (easier to compare slopes)
+#### Single panel version (easier to compare slopes)
 Fig_S2 <- ggplot(data= Logged, aes(YearsSinceLogging, ACD, FACE))+
   xlab("Years Since Logging")+
   ylab(expression(paste("Aboveground Carbon Density", " ","(Mg h", a^-1, sep = "", ")")))+
@@ -280,7 +279,6 @@ oncelogged <- L1_R %>% filter(habitat == "once-logged") %>% filter(true_age < 31
 #----60 yrs of plantations ----
 
 #1.make plantation carbon over 60 years
-plantation <- read.csv("R_code/CarbonAnalysis/Inputs/plantation_carbon.csv") %>% select(-X)
 plantation <-  plantation %>% 
   rename(time_since_intervention = plantationAge)  
 
@@ -323,10 +321,10 @@ plantation <- plantation %>% mutate(habitat = case_when(
   TRUE ~ habitat
 ))
 
-improved_ec <- plantation %>% filter(habitat == "eucalyptus_current") %>% mutate(habitat = "eucalyptus_improved")
-improved_al <- plantation %>% filter(habitat == "albizia_current") %>% mutate(habitat = "albizia_improved")
-
-plantation <- plantation %>% rbind(improved_al) %>% rbind(improved_ec)
+#Uncommented if interested in adding info on improved plantation variety 
+#improved_ec <- plantation %>% filter(habitat == "eucalyptus_current") %>% mutate(habitat = "eucalyptus_improved")
+#improved_al <- plantation %>% filter(habitat == "albizia_current") %>% mutate(habitat = "albizia_improved")
+#plantation <- plantation %>% rbind(improved_al) %>% rbind(improved_ec)
 
 #----60 yrs of primary ----
 #2.make primary carbon over 60 years
@@ -524,7 +522,8 @@ twice_logged_delays <- do.call(rbind, predicted2L_values_list) %>%
 
 
 
-#---- EXPLANATION -don't get confused ----
+#add time delays #### 
+
 #NB - for forest that starts off as once-logged (i.e. where first harvesting happens in yr t-1, we are 
 #only allowed to second harvest in yr 15). Yr 0 of 1L->2L in our scenarios is therefore actually 
 #,technically, 15 yr once-logged forest.
@@ -780,15 +779,23 @@ XX <- allHabCarbon_60yrACD_withDelays %>%
 
 
 #-----add belowground carbon change----
+
 #NEED TO CORRECT TO INCLUDE UNCERTAINTY CALCULATIONS; ATM ONLY CALCULATING THE MAIN BIT (NO UPR OR LWR)
+
+#Assumptions made for incorporating belowground losses ####
 #1. Adding belowground carbon and necromass. 
 #2. For first 10 years, above ground ACD is offset by belowground losses 
-#3. Belowground carbon recovers at the same rate as aboveground carbon thereafter (i.e. we unrealistically 
+#3. Belowground carbon recovers at the same rate as aboveground carbon thereafter (i.e. we  
 #assume that at year 10, belowground suddenly becomes a sink, equivalent to aboveground) 
 #4. Plantations lose all belowground carbon when deforested and don’t ever recover any belowground carbon. 
 #5. Establishement of plantations on deforested ground doesn’t increase or decrease belowground carbon.  
 
-poss_trans <- hab_carbon %>% select( original_habitat, habitat, functional_habitat) %>% unique() %>% filter(habitat == functional_habitat)
+
+
+# poss_trans <- hab_carbon %>% 
+#   select( original_habitat, habitat, functional_habitat) %>%
+#   unique() %>%
+#   filter(habitat == functional_habitat)
 
 
 belowground_fun <- function(x) {
@@ -920,47 +927,6 @@ allHabCarbon_60yrACD_withDelays <- allHabCarbon_60yrACD_withDelays %>%
 
 #export 
 #WARNING; AS CURRENTLY EXPORTED, THE UNCERTAINTY (e.g. lwr and upr ACD) have not incoroprated belowground carbon dynamics)
-# DO NOT USE OR TRUST THESE. 
-write.csv(allHabCarbon_60yrACD_withDelays, "R_code/CarbonAnalysis/Inputs/allHabCarbon_60yrACD_withDelays.csv")
 
-
-
-#----unused code ----
-# 
-# #write.csv(all_carbon, "R_code/CarbonAnalysis/Inputs/allHabCarbon_60yrACD.csv")
-# getwd()
-# 
-# non2Lcarbon <- primary_Vals %>% 
-#   rbind(L1_R) %>% 
-#   rbind(deforested_c) %>%  
-#   rbind(plantation) 
-# 
-# 
-# #add all possible original_habitat to non-2L carbon vals 
-# hab_by_year <- read.csv("Tables/HabByYears.csv", strip.white = TRUE) %>%  
-#   rename(true_year = year, 
-#          functionalhabAge = functional_habAge, 
-#          habitat = transition_habitat) %>% select(-X)
-# original_habs <-hab_by_year %>% select(habitat, original_habitat) %>% unique %>% filter(!habitat == "twice-logged")
-# 
-# non2Lcarbon <- non2Lcarbon %>% left_join(original_habs, by = "habitat",relationship = "many-to-many")
-# 
-# #add the two kinds of twice-logged (from primary and from twice-logged)
-# twice_L_30yrPost <- twice_L_30yrPost %>% cbind(original_habitat = "primary")
-# twice_L_15yrPost <- twice_L_15yrPost %>%  cbind(original_habitat = "twice-logged")
-# 
-# #add twice-logged from primary and twice-logged to twice-logged to other habs
-# non2Lcarbon <- non2Lcarbon %>%  rbind(twice_L_30yrPost) %>% rbind(twice_L_15yrPost) %>% 
-#   rename(true_year = true_age, 
-#          functionalhabAge = time_since_intervention)
-# 
-# twice_logged_delays <- twice_logged_delays %>% select(-error95) %>%  
-#   rename(functionalhabAge = time_since_intervention)
-# 
-# 
-# 
-# write.csv(non2Lcarbon, "R_code/CarbonAnalysis/Inputs/allHabCarbon_60yrACD_withorginalHab.csv")
-# write.csv(twice_logged_delays, "R_code/CarbonAnalysis/Inputs/correctOnceToTwiceLoggedCarbon.csv")
-# 
-# names(non2Lcarbon)
+write.csv(allHabCarbon_60yrACD_withDelays, "Outputs/allHabCarbon_60yrACD_withDelays.csv")
 
