@@ -19,8 +19,8 @@ library(lattice)
 library(ggplot2)
 library(gridExtra)
 library(ggpubr)
-library(tidyverse)
 library(broom)
+library(tidyverse)
 library(data.table)
 
 #DEFINE KEY PARAMS ####
@@ -29,8 +29,8 @@ library(data.table)
 
 
 #RATIONALE - BEING USED for 2L -> 2L: assume forest that starts out as twice logged was logged fiften years 
-#after first logging (e.g. first harvest = t= -15, second harvest t = 0 )
-#1. For Chris Philipson's model 2s of ACD recovery after once-logging,  it looks like the first harvesting rotation led to a decline of 155.9869 ACD_ha-1  (1 yrs after once-logged = 44.01312 +/- 31.20968), down  from ~200 ACD_ha-1 for primary forest, and removing 112.96 m3 (+/- 22.42) of timber in first rotation  
+#after first logging (e.g. first harvest = t= -15, second harvest t = 0; tracks reality)
+#1. For Chris Philipson's model of ACD recovery after once-logging,  it looks like the first harvesting rotation led to a decline of 155.9869 ACD_ha-1  (1 yrs after once-logged = 44.01312 +/- 31.20968), down  from ~200 ACD_ha-1 for primary forest, and removing 112.96 m3 (+/- 22.42) of timber in first rotation  
 #2 Thus 155.9869/112.96 =  1.380904 decline in ACD per m3 harvest
 #3. Again, from Philipson's models, once-logged forest has an ACD of 84.56991 (+/- 30.47371) after 15 years of recovery.  
 #4. Twice-logging removes 31.24 m3 of timber (+/- 10.4) 
@@ -49,7 +49,11 @@ ACD_2L_starting2L_15yrAfter1L <- 40.62932
 hab_by_year <- read.csv("Inputs/HabByYears.csv", strip.white = TRUE) %>%  
   rename(true_year = year, 
          functionalhabAge = functional_habAge, 
-         habitat = transition_habitat) %>% select(-X)
+         habitat = transition_habitat) %>% select(-X) %>%  
+  #remove all improved plantation yielding varieties (can add in if interested to)
+  filter(!str_detect(habitat, "improved"))
+
+  
 
 
 
@@ -566,6 +570,9 @@ p <- ggplot(from2L_2L_AND_Primary_2L, aes(x = true_year, y = ACD, color = origin
   geom_line() +
   scale_y_continuous(limits = c(0, 250)) +
   theme_bw()
+
+p
+
 # Filter the data to get the label positions for "primary" habitat with "logged once here" and "logged twice here"
 label_data_once <- from2L_2L_AND_Primary_2L %>%
   filter(original_habitat == "primary") %>%
@@ -576,7 +583,7 @@ label_data_twice <- from2L_2L_AND_Primary_2L %>%
   slice_min(true_year)
 
 p + 
-  geom_text(data = label_data_once, aes(label = "Logged after 30 yrs, original habitat is primary"), hjust = 0, vjust = 0) +
+  geom_text(data = label_data_once, aes(label = "ReLogged after 30 yrs, original habitat is primary"), hjust = 0, vjust = 0) +
   geom_text(data = label_data_twice, aes(label = "Logged twice before start of scenario, oringal habitat is twice-logged"), hjust = 0, vjust = 1, color = "red")
 
 #Looks good; minimum 15 years delay, then harvest, then
@@ -631,7 +638,7 @@ combined <- combined %>% rbind(stays2L) %>%
 
 
 #check correct number of rows for each hab transitions 
-XX <- combined %>% group_by(original_habitat, habitat) %>% count
+#XX <- combined %>% group_by(original_habitat, habitat) %>% count
 
 # already has hab transitions 
 oncelogged_to_twice_logged #already has harvest delays (only allows delays of >14...have to wait 15 years from first harvest in yr t-1)
@@ -640,7 +647,7 @@ from2L_2L_AND_Primary_2L #no harvest delays
 
 # ------ add harvest time-delay to scenarios -----------------
 # define the delay before which habitat transition happens 
-# here was apply a time window of 30 years, apply harvesting annually
+# here we apply a time window of 30 years, apply harvesting annually
 delay <- seq(1:29)
 
 #----create harvest delay function ----
@@ -731,7 +738,7 @@ add_delay <- function(X) {
   }
   # 
   # #make sure we have all the years with same amount of rows
-  x <-  rbindlist(output_list)
+  #x <-  rbindlist(output_list)
   # test <- x %>% group_by(true_year) %>% count()
   # 
   # #this hab_by_year now includes the temporal dimension assuming different delays until first harvest
@@ -754,7 +761,7 @@ allHabCarbon_60yrACD_withDelays <- combined %>% rbind(from2L_2L_AND_Primary_2L) 
 
 #----final hard-coded correction----
 
-#for some reason, we are still missing all the delay year data from original twice-logged habitat
+# we are still missing all the delay year data from original twice-logged habitat
 # mannually add this in
 allHabCarbon_60yrACD_withDelays <- allHabCarbon_60yrACD_withDelays %>% left_join(stays2L, by = c("true_year", "functional_habitat","functionalhabAge")) %>%
   mutate(
@@ -791,11 +798,74 @@ XX <- allHabCarbon_60yrACD_withDelays %>%
 #5. Establishement of plantations on deforested ground doesn’t increase or decrease belowground carbon.  
 
 
+#More formally
+#conversion to plantation = JUST ACD (i.e. 0 belowground carbon)
+#ACDforest + BCforest(t < 10) = ACDforest_t1 ----------> #  #if there is a habitat transition then first 10 years have the same ACD  ACD recovery is offset by belowground losses, or more formally
+#ACDforest + BCforest(t > 10) = ACDforest_t + (ACDforest_t * 0.31)
+#################
+#to test function below and see what's happening for replicatability 
+replica <- allHabCarbon_60yrACD_withDelays %>%  filter(harvest_delay == 15)
+x <- replica
 
+belowground_fun <- function(x) {
+  
+  # 1. FOR PLANTATIONS 
+  #for plantations, they lose all belowground carbon when deforested and don’t ever recover any belowground carbon. 
+  #Establishement of plantations on deforested ground doesn’t increase or decrease belowground carbon.  
+  #This is operationalised by belowground carbon always being 0 if functional habitat = plantation, so ACD is basically all that matters
+  plantations <- x %>% 
+    filter(str_detect(habitat, "albizia|eucalyptus")) %>% 
+    mutate(full_carbon = ACD)
+    
+  #2. FOR ALL OTHER DATA 
+ 
+   x <- x %>%  
+    #remove plantation cases 
+    filter(!str_detect(habitat, "albizia|eucalyptus"))
+
+    #Get year 1 ACD 
+  yr1_filt <- x %>% filter(functionalhabAge == 1) %>% 
+    select(functional_habitat,original_habitat,habitat,harvest_delay,ACD, upr_ACD, lwr_ACD) %>%  
+    rename(ACDt1 = ACD, 
+           uprACDt1 = upr_ACD, 
+           lwrACDt1 = lwr_ACD) %>% unique
+  
+  #if there is a habitat transition then first 10 years have the same fixed ACD 
+  #as ACD recovery is offset by belowground losses, or more formally
+  #ACDforest+BCforest(t < 10) = ACDforest_t1
+  
+  y <- x %>% left_join(yr1_filt) %>% 
+      # Check conditions and mutate ACD accordingly
+      mutate(
+        full_carbon = case_when(
+          
+          #if there is a habitat transition and functional hab age <10, fixed full carbon as t1 ACD (equivalent to belowground carbon loss offsetting above ground gains)
+          original_habitat != functional_habitat & functionalhabAge <= 10 ~ ACDt1,
+          
+          #if there is no habitat transition OR functional hab age >10, assume full carbon = ACD + BCD (where bcd = ACD*031)
+          original_habitat == functional_habitat | functionalhabAge > 10 ~ ACD + (ACD* 0.31),
+          TRUE ~ NA  # Otherwise NA
+        )
+      )
+  
+  #recombine plantations and other data 
+  full_data <- rbind(plantations, y)
+  
+}
+  
+  
+   test <- x %>%
+    # Create an initial belowgroundCarbon column with all NA values
+    mutate(belowgroundCarbon = NA) %>%
+    
+
+
+############################
 # poss_trans <- hab_carbon %>% 
 #   select( original_habitat, habitat, functional_habitat) %>%
 #   unique() %>%
 #   filter(habitat == functional_habitat)
+
 
 
 belowground_fun <- function(x) {
