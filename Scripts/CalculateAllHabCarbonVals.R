@@ -1,5 +1,5 @@
-#04.06.24
-#This code calculates ACD of each habitat type through time 
+#09.06.24
+#This code calculates carbon (above and belowground) of each habitat type through time 
 
 #Code notes:
 #Plantation ACD is calculate is from SSB inventory data 
@@ -7,11 +7,16 @@
 #Philipson 2020; Science. (I adjust Philipson's code to allow estimates for 60 years (they
 #estimate out to 30/35 years; I assume that slope and intercept of their models stay the same 
 #and that 1L and R values plateu once they reach primary forest values)
-#I estimate ACD in twice-logged forest 
+#I estimate ACD in twice-logged forest, and use three 2L typologies 
 
 #This code also
 #1. Adds different harvest delays 
-#2 Incorporates belowground carbon and necromass
+#2 Incorporates belowground carbon and necromass processes
+
+#Code output
+##NB this code outputs a master csv called "allHabCarbon_60yrACD_withDelays.csv"
+# where ACD refers only to the raw above ground carbon density values and 
+#where full_carbon incorporate belowground processes.
 
 
 library(lme4)
@@ -803,9 +808,9 @@ XX <- allHabCarbon_60yrACD_withDelays %>%
 #ACDforest + BCforest(t < 10) = ACDforest_t1 ----------> #  #if there is a habitat transition then first 10 years have the same ACD  ACD recovery is offset by belowground losses, or more formally
 #ACDforest + BCforest(t > 10) = ACDforest_t + (ACDforest_t * 0.31)
 #################
-#to test function below and see what's happening for replicatability 
-replica <- allHabCarbon_60yrACD_withDelays %>%  filter(harvest_delay == 15)
-x <- replica
+# #to test function below and see what's happening for replicatability 
+# replica <- allHabCarbon_60yrACD_withDelays %>%  filter(harvest_delay == 15)
+# x <- replica
 
 belowground_fun <- function(x) {
   
@@ -815,7 +820,9 @@ belowground_fun <- function(x) {
   #This is operationalised by belowground carbon always being 0 if functional habitat = plantation, so ACD is basically all that matters
   plantations <- x %>% 
     filter(str_detect(habitat, "albizia|eucalyptus")) %>% 
-    mutate(full_carbon = ACD)
+    mutate(full_carbon = ACD, 
+           full_carbon_lwr = lwr_ACD, 
+           full_carbon_upr = upr_ACD)
     
   #2. FOR ALL OTHER DATA 
  
@@ -845,146 +852,29 @@ belowground_fun <- function(x) {
           #if there is no habitat transition OR functional hab age >10, assume full carbon = ACD + BCD (where bcd = ACD*031)
           original_habitat == functional_habitat | functionalhabAge > 10 ~ ACD + (ACD* 0.31),
           TRUE ~ NA  # Otherwise NA
-        )
-      )
+        ), 
+        
+        #get uppr and lwr bounds
+        full_carbon_lwr = case_when(
+          original_habitat != functional_habitat & functionalhabAge <= 10 ~ lwr_ACD,
+                    original_habitat == functional_habitat | functionalhabAge > 10 ~ lwr_ACD + (lwr_ACD* 0.31),
+          TRUE ~ NA), 
+        
+        full_carbon_upr = case_when(
+          original_habitat != functional_habitat & functionalhabAge <= 10 ~ upr_ACD,
+          original_habitat == functional_habitat | functionalhabAge > 10 ~ upr_ACD + (upr_ACD* 0.31),
+          TRUE ~ NA)
+      ) %>%  
+    
+    select(-c(ACDt1, uprACDt1, lwrACDt1))
   
   #recombine plantations and other data 
   full_data <- rbind(plantations, y)
   
 }
   
-  
-   test <- x %>%
-    # Create an initial belowgroundCarbon column with all NA values
-    mutate(belowgroundCarbon = NA) %>%
-    
-
-
-############################
-# poss_trans <- hab_carbon %>% 
-#   select( original_habitat, habitat, functional_habitat) %>%
-#   unique() %>%
-#   filter(habitat == functional_habitat)
-
-
-
-belowground_fun <- function(x) {
-  test <- x %>%
-    # Create an initial belowgroundCarbon column with all NA values
-    mutate(belowgroundCarbon = NA) %>%
-    # If there is a habitat transition and functionalhabAge of 0-10, assume  belowground losses offset above-ground recovery
-    # following Mills and Riutta 2023
-    group_by(original_habitat, habitat, functional_habitat ) %>% 
-    mutate(belowgroundCarbon = ifelse(
-      (original_habitat != habitat & habitat == functional_habitat & functionalhabAge > 1 & functionalhabAge < 11),
-      -ACD, # for years 2-10, below-ground losses offsets aboveground gains
-      ifelse(
-        # if there is no habitat transition, then we assume carbon of 
-        # of belowground biomass and necromass is 0.31 of ACD, following Cairns et al 2003
-        (original_habitat == habitat | original_habitat == functional_habitat),
-        ACD * 0.31, # if >10 yrs post harvest, belowground ACD is again same as aboveground
-        belowgroundCarbon
-      )
-    ))
-  
-  # If there is a habitat transition from primary -> twice logged and functionalhabAge of 0-10,  assume  belowground losses offset above-ground recovery
-  # following Mills and Riutta 2023 (we have to deal with this transition type independently)
-  test2 <- test %>%
-    mutate(belowgroundCarbon = ifelse(
-      original_habitat == "primary" & 
-        habitat == "twice-logged" & 
-        functional_habitat == "once-logged" & 
-        functionalhabAge > 1 & 
-        functionalhabAge < 11,
-      -ACD, # for years 2-10, below-ground losses offsets aboveground gains
-      ifelse(
-        original_habitat == "primary" & 
-          habitat == "twice-logged" & 
-          functional_habitat == "once-logged" & 
-          functionalhabAge > 10,
-        ACD  * 0.31,
-        belowgroundCarbon
-      )
-    ))
-  
-  #if there is a transition, after ten years of no belowground 
-  #recovery, we assume belowground recovery at the same rate of aboveground recovery 
-  test3 <- test2 %>%
-    group_by(original_habitat, habitat, harvest_delay) %>%
-    arrange(true_year, .by_group = TRUE) %>%
-    mutate(
-      belowgroundCarbon = case_when(
-        (original_habitat != habitat & habitat == functional_habitat & 
-           #           (functionalhabAge > 10 | functionalhabAge < 2)) ~ ACD * 0.31, # >10 yrs since harvest, belowground recovery is equivalent to aboveground recovery 
-           functionalhabAge > 10 ) ~ ACD * 0.31, # >10 yrs since harvest, belowground recovery is equivalent to aboveground recovery 
-        
-        #have to deal with this transition indepently
-        original_habitat == "primary" & habitat == "twice-logged" & functional_habitat == "once-logged" &
-          functionalhabAge == 1  ~ ACD * 0.31,
-        
-        
-        TRUE ~ belowgroundCarbon
-      )
-    ) %>% 
-    ungroup
-  
-  # If functional habitat is plantation, assume 0 recovery of soil carbon
-  test4 <- test3 %>%
-    mutate(belowgroundCarbon = ifelse(
-      str_detect(functional_habitat, "eucalyptus|albizia"),
-      0,
-      belowgroundCarbon
-    ))
-  
-  #build a correction factor that fixes aboveground ACD in first ten years as yr 1 ACD where transitions take place
-  correct_first10yrs <- test4 %>%
-    filter(
-      (original_habitat != habitat & habitat == functional_habitat & between(functionalhabAge, 1, 10) &
-         !grepl("eucalyptus|albizia", functional_habitat)) |
-        (original_habitat == "primary" & habitat == "twice-logged" & functional_habitat == "once-logged" & between(functionalhabAge, 1, 10))
-    )
-  
-  #get yr 1 ACD in order to build correction factor
-  yr1_filt <- correct_first10yrs %>% filter(functionalhabAge == 1) %>% 
-    select(functional_habitat,original_habitat,habitat,harvest_delay,ACD) %>%  
-    rename(ACDt1 = ACD) %>% unique
-  
-  #apply correction factor so that we get ACD = t1 in functional yrs 1-10
-  test5 <- correct_first10yrs %>% left_join(yr1_filt)  %>% 
-    mutate(
-      belowgroundCarbon = 
-        ifelse(functionalhabAge > 1, belowgroundCarbon + ACDt1, belowgroundCarbon)
-    ) %>% select(-ACDt1)
-  
-  #remove and replace incorrect years with corrected data 
-  test6 <- test4 %>%
-    #remove old vals
-    filter(
-      !(
-        (original_habitat != habitat & habitat == functional_habitat & between(functionalhabAge, 1, 10) &
-           !grepl("eucalyptus|albizia", functional_habitat)) |
-          (original_habitat == "primary" & habitat == "twice-logged" & functional_habitat == "once-logged" & between(functionalhabAge, 1, 10))
-      )
-    )  %>% 
-    #add new vals  
-    rbind(test5) %>% 
-    #put in nice order
-    group_by(original_habitat, habitat, harvest_delay) %>%
-    arrange(true_year, .by_group = TRUE) %>% ungroup()
-  
-  
-  #now add belowground recovery/carbon amount to ACD
-  test6 <- test6 %>% mutate(
-    belowgroundCarbon = replace(belowgroundCarbon, is.na(belowgroundCarbon), 0),
-    ACD = ACD + belowgroundCarbon) %>% 
-    select(-belowgroundCarbon)
-  
-  
-  return(test6)
-}
 
 allHabCarbon_60yrACD_withDelays <- belowground_fun(allHabCarbon_60yrACD_withDelays)
-
 
 #----make master output ----
 
@@ -992,11 +882,24 @@ allHabCarbon_60yrACD_withDelays <- belowground_fun(allHabCarbon_60yrACD_withDela
 names(allHabCarbon_60yrACD_withDelays)
 allHabCarbon_60yrACD_withDelays <- allHabCarbon_60yrACD_withDelays %>%
   select(original_habitat, habitat, functional_habitat,
-         true_year, functionalhabAge, harvest_delay, 
+         true_year, functionalhabAge, harvest_delay,
+         full_carbon, full_carbon_lwr, full_carbon_upr,
          ACD,lwr_ACD, upr_ACD)
 
-#export 
-#WARNING; AS CURRENTLY EXPORTED, THE UNCERTAINTY (e.g. lwr and upr ACD) have not incoroprated belowground carbon dynamics)
 
-write.csv(allHabCarbon_60yrACD_withDelays, "Outputs/allHabCarbon_60yrACD_withDelays.csv")
+#cursory plots ####
+#nb only plot delay yrs 1 & 29 so that you can see what's going on
+allHabCarbon_60yrACD_withDelays %>%
+  filter(harvest_delay %in% c(1, 29)) %>% 
+  ggplot(aes(x = true_year, y = full_carbon, colour = harvest_delay)) +
+  geom_line() +
+  facet_wrap(~original_habitat + habitat, scales = "free_y") +
+  labs(x = "True Year", y = "Full Carbon") +
+  theme_minimal()
+
+#write Master output #####
+#NB this outputs a master output where ACD refers only to the raw above ground carbon values and 
+#where full_carbon incorporate belowground processes
+
+write.csv(allHabCarbon_60yrACD_withDelays, "Outputs/allHabCarbon_60yr_withDelays.csv")
 

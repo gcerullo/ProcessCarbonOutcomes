@@ -8,7 +8,7 @@ Process all carbon outcomes
 Fits models based on SSB inventory data to determine the carbon per year in 12- and 6-year albizia and eucalyptus plantations, respectively. 
 
 #2. CalculateALlHabCarbonVals 
-#This code calculates ACD of each habitat type through time 
+#This code calculates carbon (above and belowground) of each habitat type through time 
 
 #Code notes:
 Plantation ACD is calculate is from SSB inventory data 
