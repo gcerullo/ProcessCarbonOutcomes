@@ -46,13 +46,11 @@ scenario_composition <- rbindlist(scenarios, use.names=TRUE)
 #This is the output of the CalculateAllHabCarbonVals.R script
 hab_carbon <-read.csv("Outputs/allHabCarbon_60yr_withDelays.csv")
 
-names()
 #--- run pipeline a single scenario -------
 # # 
-#  J <- rbindlist(scenarios,use.names=TRUE)
-#  test_scen_comp <- scenario_composition %>% filter(index == "unq2_1793") # a scenario with a good mixture of logging
-#  test_scen<-  J %>% filter(index == "all_primary_CY_D.csv 349") #a restored + primary scenario
-# 
+ # J <- rbindlist(scenarios,use.names=TRUE)
+ # test_scen<-  J %>% filter(index == "all_primary_CY_D.csv 349") #a restored + primary scenario
+
 # ------Add temporal carbon data to scenairos -----------------
 names(scenario_composition)
 names(hab_carbon)
@@ -70,11 +68,13 @@ carbon_fun <- function(x){
   #                                         relationship = "many-to-many")  
 }
 #!!!!
+#single scenario 
 #scenarios <- carbon_fun(test_scen)
 #!!!!
+
 scenarios <- lapply(scenarios,carbon_fun)
 
-# -------- CALCULATE SCENARIO ACD FOR A GIVEN TRUE YEAR ----------
+# -------- ACD for a true year----------
 #Make the hard coded decision below of whether to use all_carbon
 #(includes belowground processes), or just above ground carbon (ACD)
 
@@ -88,8 +88,11 @@ scenarios <- lapply(scenarios,carbon_fun)
 J <- scenarios[[12]] 
 harvest_window <- J$harvest_delay %>% unique %>% length()
 
+#!!!!!!
 #use for single scenario test
 # harvest_window <- 30
+#!!!!!!
+
 
 scenario_ACD_fun <- function(x){
   x %>% 
@@ -116,15 +119,11 @@ scenario_ACD_fun <- function(x){
       lwr_ACD_10km2_stag = lwr_ACD_10km * num_parcels / harvest_window,
       upr_ACD_10km2_stag = upr_ACD_10km * num_parcels / harvest_window)  %>% 
     
-    
-    #!!!!####
-  #Nb- to incorporate here - once-L to twice-L transitions are not allowed to occur in the first 15 yrs, as forests stating as 1L were harvested in yr t-1
-  
+
   #3. for each true year and habitat transition, calculate ACD combined across the staggered
   #harvesting schedule (i.e. the ACD in a given habitat transition for a given year) 
   group_by(index,production_target, original_habitat, habitat, true_year) %>%  
     mutate(hab_ACD_year = sum(ACD_10km2_stag), 
-           #----PROPOGATING ERROR INCORRECTLY?!!!!------
            hab_ACD_year_lwr= sum(lwr_ACD_10km2_stag), 
            hab_ACD_year_upr = sum(upr_ACD_10km2_stag)) %>%  ungroup %>%  
     
@@ -148,6 +147,7 @@ scenario_ACD_fun <- function(x){
 }
 
 # #!!!!
+#Single scenario 
 # scenTEST <- scenario_ACD_fun(scenarios)
 # singleYear <- scenTEST %>% filter(true_year == 9)
 # scenarios <- scenario_ACD_fun(scenarios)
@@ -222,6 +222,7 @@ add_SL_ACD_fun <- function(x){
   
 }
 #!!!!!!
+#single scenario
 #scenarios <- add_SL_ACD_fun(scenarios)
 #!!!!!!
 
@@ -396,7 +397,9 @@ flux_converted_function <- function(x){
   
   
 }
+
 #!!!!
+#Single scenario test 
 # scenario_flux <- flux_converted_function(scenarios)
 # flux_per_scenario_and_SL <- scenario_flux %>%
 #   ggplot( aes(x = true_year, y = scen_flux/1000000)) +
@@ -447,12 +450,10 @@ socialDR_fun <- function(x, SDR){
   
   
 }
-# 
-# ################
-# #############
-# 
-# #---------TEST ANDREW VS TOM SWNIFIELD WAY OF DOING THINGS: ------- 
-# #good their identical 
+
+# #---------Sense check ------- 
+# As a sense check, run two equation formats (Tom Swinfield vs Andrew Balmford) to check they are the same
+#good their identical 
 # print(single) 
 # 
 # single <- single %>% left_join(socialDR_2, by = "true_year")
@@ -460,7 +461,7 @@ socialDR_fun <- function(x, SDR){
 # #select relevant columns only 
 # single <- single %>% select(index, true_year, scen_flux, SL_flux, scc_discounted, discount_rate)
 # 
-# #----- ANDREW's WAY -----------
+# 
 # #Andrew's way #-22135273
 # andrew <- single %>%  
 #   mutate(
@@ -503,7 +504,7 @@ socialDR_fun <- function(x, SDR){
 # final_carbon_comb <- rbind(final_carbon2,final_carbon4,final_carbon6)
 # ##!!!!!
 
-##THIS BIT JUST TELLS US WHAT THE NET FLUX IS. 
+#Net flux #### 
 final_carbon2_fun <- function(x){
   socialDR_fun(x,socialDR_2) %>% 
     mutate(netFlux = SL_flux -scen_flux) %>% 
@@ -597,9 +598,6 @@ scc <- final_carbon_comb %>% select(true_year,discount_rate, scc_discounted) %>%
         axis.title = element_text(size = 14, face = "bold"),
         plot.title = element_text(size = 16, hjust = 0.5))
 
-x <- plot_grid(carbonImpact, sFlux, rel_heights = c(1,0.5))
-plot_grid(x, scc, nrow = 2, rel_heights = c(1,0.5))
-
 
 ##!!!
 #DISCOUNT RATE 4%
@@ -619,8 +617,12 @@ all_discount_rates <- final_carbon_df_2DR %>% rbind(final_carbon_df_4DR) %>% rbi
 #-----EXPORT OUTCOME PERFORMANCE for consolidated figure of all outcomes -----
 getwd()
 names(all_discount_rates)
-output <- all_discount_rates %>% select(index, production_target, scenarioName,scenarioStart,
+output <- all_discount_rates %>%
+  #remove year 0 as this will have NA values 
+  filter(true_year> 0 ) %>% 
+  select(index, production_target, scenarioName,scenarioStart,
                                         TOTcarbon_impact,TOTcarbon_impact_lwr, TOTcarbon_impact_upr, discount_rate) %>% 
+  unique() %>% 
   cbind(outcome = "carbon")
 output <- unique(output)
 
