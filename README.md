@@ -23,3 +23,7 @@ This code also:
 
 3.CalculateSocialDiscountRates.R
 Uses Grooms/Venman approach to calculating social cost of carbon discount rates for 2,4,6%
+
+#4. ScenarioCarbonOutcomes.R 
+#this code calculates carbon consequences of different scenarios.
+#NB there is a hard-coded section in this code where you can use either ACD or all carbon (ACD + belowground processes)
