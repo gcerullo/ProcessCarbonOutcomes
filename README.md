@@ -4,10 +4,10 @@ Process all carbon outcomes
 
 #Rscripts 
 
-#1. CalculatePlantationCarbonVals 
+#1. CalculatePlantationCarbonVals.R
 Fits models based on SSB inventory data to determine the carbon per year in 12- and 6-year albizia and eucalyptus plantations, respectively. 
 
-#2. CalculateALlHabCarbonVals 
+#2. CalculateALlHabCarbonVals.R
 #This code calculates carbon (above and belowground) of each habitat type through time 
 
 #Code notes:
@@ -20,3 +20,6 @@ I estimate ACD in twice-logged forest
 This code also:
 1. Adds different harvest delays 
 2 Incorporates belowground carbon and necromass
+
+3.CalculateSocialDiscountRates.R
+Uses Grooms/Venman approach to calculating social cost of carbon discount rates for 2,4,6%
