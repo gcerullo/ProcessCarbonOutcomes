@@ -35,9 +35,9 @@ all_start_landscape
 
 #Read in Data ####
 #----------------read in scenarios -------------------------------
-#NEEDS TO BE UPDATED WITH CORRECT YIELDS !!!!!!!!!
+
 #yield matched scenarios where 1/30th of plantation conversion happens annually
-scenarios <- readRDS("Inputs/allScenariosStaggered.rds")
+scenarios <- readRDS("Inputs/MasterAllScenarios.rds")
 scenario_composition <- rbindlist(scenarios, use.names=TRUE)
 
 #------read in carbon by year per hab -----------------------
