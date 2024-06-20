@@ -876,7 +876,6 @@ belowground_fun <- function(x) {
 
 allHabCarbon_60yrACD_withDelays <- belowground_fun(allHabCarbon_60yrACD_withDelays)
 
-#----make master output ----
 
 #reorder columns names 
 names(allHabCarbon_60yrACD_withDelays)

@@ -11,7 +11,7 @@ library(ggpubr)
 library(stringr) 
 library(cowplot)
 
-#READ!!!: there are sign-posed hard-coded param decisions in this script!!
+#READ!!!: there are sign-posted hard-coded param decisions in this script!!
 
 #Hard-coded param decisions: 
 #Reading in carbon by hab outcomes from  CalculateAllHabCarbonVals.R script, 
@@ -36,9 +36,12 @@ all_start_landscape
 #Read in Data ####
 #----------------read in scenarios -------------------------------
 
-#yield matched scenarios where 1/30th of plantation conversion happens annually
-scenarios <- readRDS("Inputs/MasterAllScenarios.rds")
-scenario_composition <- rbindlist(scenarios, use.names=TRUE)
+#yield matched scenarios where 1/30th of plantation conversion happens annually - with no time delay 
+##scenarios <- readRDS("Inputs/MasterAllScenarios.rds")
+#scenario_composition <- rbindlist(scenarios, use.names=TRUE)
+
+#yield matched scenarios where 1/30th of plantation conversion happens annually - WITH TIME DELAY 
+scenarios <- readRDS("Inputs/MasterAllScenarios_withHarvestDelays.rds")
 
 #------read in carbon by year per hab -----------------------
 #read in carbon, with delays already calculated. ACD refers to just above-ground carbon 
@@ -46,14 +49,10 @@ scenario_composition <- rbindlist(scenarios, use.names=TRUE)
 #This is the output of the CalculateAllHabCarbonVals.R script
 hab_carbon <-read.csv("Outputs/allHabCarbon_60yr_withDelays.csv")
 
-#--- run pipeline a single scenario -------
+#--- run pipeline for a single scenario -------
 # # 
  # J <- rbindlist(scenarios,use.names=TRUE)
  # test_scen<-  J %>% filter(index == "all_primary_CY_D.csv 349") #a restored + primary scenario
-
-# ------Add temporal carbon data to scenairos -----------------
-names(scenario_composition)
-names(hab_carbon)
 
 #convert hab_harbon to data-table 
 hab_carbon <- as.data.table(hab_carbon)
