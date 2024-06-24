@@ -27,6 +27,7 @@ library(ggpubr)
 library(broom)
 library(tidyverse)
 library(data.table)
+library(cowplot)
 
 #DEFINE KEY PARAMS ####
 #define amount of ACD loss from second rotation (ACD loss from getting 31.2m3 of timber in second harvest)
@@ -44,12 +45,14 @@ library(data.table)
 #7. Thus given a 15yr once-logged ACD before logging, then:
 #      84.56991 - 43.94059 = 40.62932 in twice-logged in yr 0   
 
+#define params ####
 harvest2ndACD_loss = 43.13944
 #define ACD left after second rotation (Mg.ha-1), 30 years after 1st logging 
 ACD_2L_yr0_30yrAfter1L_30yrAfter1L <-84.88416  # 30y3 1L =  128.02360   -  harvest2ndACD_loss
 #define ACD after for scenarios beginning as 2L
 ACD_2L_starting2L_15yrAfter1L <- 40.62932
 
+#define inputs ####
 #-----read in inputs showing habitat transitions --------
 hab_by_year <- read.csv("Inputs/HabByYears.csv", strip.white = TRUE) %>%  
   rename(true_year = year, 
@@ -59,13 +62,12 @@ hab_by_year <- read.csv("Inputs/HabByYears.csv", strip.white = TRUE) %>%
   filter(!str_detect(habitat, "improved"))
 
   
-
-
-
 #--------- read in plantation data ---------
 
-plantation <- read.csv("Outputs/plantation_carbon.csv") %>% select(-X)
-names(plantation)
+plantation <- read.csv("Outputs/plantation_carbon.csv") %>% 
+  select(-X) %>%  
+  mutate(habitat = case_when(habitat == "albizia" ~ "albizia_current", 
+                              habitat == "eucalyptus" ~"eucalyptus_current"))
 
 
 #----- carbon in primary, restored and once-logged --------
@@ -157,47 +159,48 @@ levels(NEWDAT$FACE)
 levels(Logged$FACE)
 
 
-## add line indicating timing of restoration
-RestorLine <- data.frame(x=2, y=399, xend=23, yend=399, FACE="B: With active restoration")
+# Plot 1L and Restored #### 
+# add line indicating timing of restoration
+# RestorLine <- data.frame(x=2, y=399, xend=23, yend=399, FACE="B: With active restoration")
+# 
+# plot1 <- ggplot(data= Logged, aes(YearsSinceLogging, ACD, FACE))+
+#   xlab("Years Since Logging")+
+#   ylab(expression(paste("Aboveground Carbon Density", " ","(Mg h", a^-1, sep = "", ")")))+
+#   scale_y_continuous(limits=c(0,399))+
+#   facet_grid(~FACE)+ # , scales="free_x", space="free"
+#   # geom_point(col="grey25", pch="O")+ # grey30 grey20
+#   geom_line(data= Logged,aes(YearsSinceLogging,ACD, group=Plot),  size=0.5, colour= "grey")+ # lines per plot
+#   geom_line(data=NEWDAT,aes(YearsSinceLogging, ACD, group=FACE),  linetype=1, size=1.2, colour= "blue")+
+#   geom_line(data=NEWDAT,aes(YearsSinceLogging,plo, group=FACE), size=1, linetype =3, colour= "blue")+
+#   geom_line(data=NEWDAT,aes(YearsSinceLogging,phi, group=FACE),size=1, linetype =3,  colour= "blue")+
+#   theme_bw()+ theme(strip.text.y = element_text( size = 12, hjust = .5), strip.text.x = element_text( size = 12, hjust = .5),strip.background=element_rect(colour="black", fill="white"))+
+#   theme(strip.text.x = element_text(size = 14, hjust = .5),strip.background=element_rect(colour="black", fill="white"))+
+#   theme(strip.text.y = element_text(size = 14, hjust = .5),strip.background=element_rect(colour="black", fill="white"))+
+#   theme(axis.title.y = element_text(size = 14, angle = 90))+
+#   theme(axis.title.x = element_text(size = 14, angle = 00))+
+#   theme(axis.text = element_text(size = 14, colour = "black"))+labs(title="")+
+#   geom_segment(data= RestorLine, mapping=aes(x=x, y=y, xend=xend, yend=yend),inherit.aes=FALSE, arrow=arrow(angle=65, ends="both", length=unit(0.1, "inches")), size=1, color="darkgreen")
+# 
+# 
+# 
+# #### Single panel version (easier to compare slopes)
+# plot2 <- ggplot(data= Logged, aes(YearsSinceLogging, ACD, FACE))+
+#   xlab("Years Since Logging")+
+#   ylab(expression(paste("Aboveground Carbon Density", " ","(Mg h", a^-1, sep = "", ")")))+
+#   scale_y_continuous(limits=c(0,399))+
+#   geom_line(data= Logged,aes(YearsSinceLogging,ACD, group=Plot, colour =FACE),  size=0.5, alpha=0.2)+ # lines per plot
+#   geom_line(data=NEWDAT,aes(YearsSinceLogging, ACD, colour =FACE),  linetype=1, size=1.5)+
+#   geom_line(data=NEWDAT,aes(YearsSinceLogging,plo, colour =FACE), size=1, linetype =2)+
+#   geom_line(data=NEWDAT,aes(YearsSinceLogging,phi, colour =FACE),size=1, linetype =2)+
+#   theme_bw()+ theme(strip.text.y = element_text( size = 12, hjust = .5), strip.text.x = element_text( size = 12, hjust = .5),strip.background=element_rect(colour="black", fill="white"))+
+#   theme(strip.text.x = element_text(size = 14, hjust = .5),strip.background=element_rect(colour="black", fill="white"))+
+#   theme(strip.text.y = element_text(size = 14, hjust = .5),strip.background=element_rect(colour="black", fill="white"))+
+#   theme(axis.title.y = element_text(size = 14, angle = 90))+
+#   theme(axis.title.x = element_text(size = 14, angle = 00))+
+#   theme(axis.text = element_text(size = 14, colour = "black"))+labs(title="")+
+#   scale_color_manual(values=c("blue", "red"))+ 
+#   theme(legend.position = "none")
 
-Fig1 <- ggplot(data= Logged, aes(YearsSinceLogging, ACD, FACE))+
-  xlab("Years Since Logging")+
-  ylab(expression(paste("Aboveground Carbon Density", " ","(Mg h", a^-1, sep = "", ")")))+
-  scale_y_continuous(limits=c(0,399))+
-  facet_grid(~FACE)+ # , scales="free_x", space="free"
-  # geom_point(col="grey25", pch="O")+ # grey30 grey20
-  geom_line(data= Logged,aes(YearsSinceLogging,ACD, group=Plot),  size=0.5, colour= "grey")+ # lines per plot
-  geom_line(data=NEWDAT,aes(YearsSinceLogging, ACD, group=FACE),  linetype=1, size=1.2, colour= "blue")+
-  geom_line(data=NEWDAT,aes(YearsSinceLogging,plo, group=FACE), size=1, linetype =3, colour= "blue")+
-  geom_line(data=NEWDAT,aes(YearsSinceLogging,phi, group=FACE),size=1, linetype =3,  colour= "blue")+
-  theme_bw()+ theme(strip.text.y = element_text( size = 12, hjust = .5), strip.text.x = element_text( size = 12, hjust = .5),strip.background=element_rect(colour="black", fill="white"))+
-  theme(strip.text.x = element_text(size = 14, hjust = .5),strip.background=element_rect(colour="black", fill="white"))+
-  theme(strip.text.y = element_text(size = 14, hjust = .5),strip.background=element_rect(colour="black", fill="white"))+
-  theme(axis.title.y = element_text(size = 14, angle = 90))+
-  theme(axis.title.x = element_text(size = 14, angle = 00))+
-  theme(axis.text = element_text(size = 14, colour = "black"))+labs(title="")+
-  geom_segment(data= RestorLine, mapping=aes(x=x, y=y, xend=xend, yend=yend),inherit.aes=FALSE, arrow=arrow(angle=65, ends="both", length=unit(0.1, "inches")), size=1, color="darkgreen")
-Fig1
-
-
-#### Single panel version (easier to compare slopes)
-Fig_S2 <- ggplot(data= Logged, aes(YearsSinceLogging, ACD, FACE))+
-  xlab("Years Since Logging")+
-  ylab(expression(paste("Aboveground Carbon Density", " ","(Mg h", a^-1, sep = "", ")")))+
-  scale_y_continuous(limits=c(0,399))+
-  geom_line(data= Logged,aes(YearsSinceLogging,ACD, group=Plot, colour =FACE),  size=0.5, alpha=0.2)+ # lines per plot
-  geom_line(data=NEWDAT,aes(YearsSinceLogging, ACD, colour =FACE),  linetype=1, size=1.5)+
-  geom_line(data=NEWDAT,aes(YearsSinceLogging,plo, colour =FACE), size=1, linetype =2)+
-  geom_line(data=NEWDAT,aes(YearsSinceLogging,phi, colour =FACE),size=1, linetype =2)+
-  theme_bw()+ theme(strip.text.y = element_text( size = 12, hjust = .5), strip.text.x = element_text( size = 12, hjust = .5),strip.background=element_rect(colour="black", fill="white"))+
-  theme(strip.text.x = element_text(size = 14, hjust = .5),strip.background=element_rect(colour="black", fill="white"))+
-  theme(strip.text.y = element_text(size = 14, hjust = .5),strip.background=element_rect(colour="black", fill="white"))+
-  theme(axis.title.y = element_text(size = 14, angle = 90))+
-  theme(axis.title.x = element_text(size = 14, angle = 00))+
-  theme(axis.text = element_text(size = 14, colour = "black"))+labs(title="")+
-  scale_color_manual(values=c("blue", "red"))+ 
-  theme(legend.position = "none")
-Fig_S2
 
 
 ## Unlogged forest for comparison
@@ -237,10 +240,6 @@ PrimaryReference <- ggplot(data= UnLogged, aes(YearsSinceLogging, ACD, FACE))+
 # ---- ACD and CI by habitat type ------
 #BUILD A DATAFRAME OF ACD and confidence intervals by age for each habitat type  
 
-#WE WILL USE PRIMARY FROM PHILIPSON (and not 50ha Jucker plot data) AS IT'S MODELLED against TIME AND ALSO HAS BOOTSTRAP MEASURES;
-#AND THEREFORE IS MORE IN-LINE WITH RESTORED AND ONCE-LOGGED VALUES THAT I AM USING 
-
-# 
 
 #primary forest CIs 
 PrimeCIs <- as.data.frame(PrimeCIs)
@@ -289,58 +288,46 @@ oncelogged <- L1_R %>% filter(habitat == "once-logged") %>% filter(true_age < 31
 
 #1.make plantation carbon over 60 years
 plantation <-  plantation %>% 
-  rename(time_since_intervention = plantationAge)  
-
-ec_plantation_grid <- data.frame(true_age = seq(1,60, by = 1), 
-                                 time_since_intervention = seq(1,6, by = 1))
-al_plantation_grid <- data.frame(true_age = seq(1,60, by = 1), 
-                                 time_since_intervention = seq(1,12, by = 1))
-
-
-#complete cases of plantation by age
-plantation_ec <- plantation %>% filter(habitat == "eucalyptus") %>% 
-  right_join(ec_plantation_grid, by = "time_since_intervention") 
-plantation_al <- plantation %>% filter(habitat == "albizia") %>% 
-  right_join(al_plantation_grid, by = "time_since_intervention") 
-
-plantation <- rbind(plantation_ec, plantation_al)
+  rename(functionalhabAge = plantationAge)  
 
 #add in zero plantation age (for the very first year of clearance)
-zero_eucPlant <- data.frame(true_age = 0,
-                            ACD = 0, 
+zero_eucPlant <- data.frame(ACD = 0, 
                             lwr_ACD = 0, 
                             upr_ACD = 0, 
-                            habitat = "eucalyptus", 
-                            time_since_intervention = 0)
-zero_albPlant <- data.frame(true_age = 0,
-                            ACD = 0, 
+                            habitat = "eucalyptus_current", 
+                            functionalhabAge = 0)
+zero_albPlant <- data.frame(ACD = 0, 
                             lwr_ACD = 0, 
                             upr_ACD = 0, 
-                            habitat = "albizia", 
-                            time_since_intervention = 0)
+                            habitat = "albizia_current", 
+                            functionalhabAge = 0)
 
 
-plantation <- zero_eucPlant %>% rbind(zero_albPlant) %>% rbind(plantation)
+plantation <- zero_eucPlant %>% rbind(zero_albPlant) %>% 
+  rbind(plantation) %>% 
+  rename(functional_habitat = habitat)
 
+#select all hab crosses possible for plantation 
+habcrossPlant <- hab_by_year %>% 
+  filter(functional_habitat == "albizia_current"| functional_habitat =="eucalyptus_current") %>%  
+  select(original_habitat, habitat) %>% 
+  unique()
 
-#currently have eucalyptus and albizia carbon (not for improved, or current yields, which will actually probs have diff carbon!)
-plantation <- plantation %>% mutate(habitat = case_when(
-  habitat == "eucalyptus" ~ "eucalyptus_current",
-  habitat == "albizia" ~ "albizia_current",
-  TRUE ~ habitat
-))
+#expand grid so that we have functionalhabAge for all transitions
+plant_df <- expand_grid(plantation,habcrossPlant)
 
-#Uncommented if interested in adding info on improved plantation variety 
-#improved_ec <- plantation %>% filter(habitat == "eucalyptus_current") %>% mutate(habitat = "eucalyptus_improved")
-#improved_al <- plantation %>% filter(habitat == "albizia_current") %>% mutate(habitat = "albizia_improved")
-#plantation <- plantation %>% rbind(improved_al) %>% rbind(improved_ec)
 
 #----60 yrs of primary ----
 #2.make primary carbon over 60 years
 
+primary_Vals <- primary_Vals %>% rename
+
 primary_Vals <- data.frame(true_age = seq(1,60, by = 1)) %>% 
   cbind(primary_Vals[rep(1, 60), ]) %>% 
   mutate(time_since_intervention = true_age)
+
+p
+
 
 #add zero year
 zeroPrim <- data.frame(true_age = 0,
@@ -361,14 +348,20 @@ primary_Vals <- zeroPrim %>% rbind(primary_Vals)
 #2 = 2L -> 2L 
 #3 = 1L -> 2L 
 
-
 #NOTE THERE ARE THREE TYPES OF TWICE-LOGGING CURVES THRU TIME BUILT HERE: 
 #1. ACD_2L_yr0_30yrAfter1L_30yrAfter1L - second rotations happens 30 years after 1st logging. Always the case in all_primary and all_primary_deforested scenarios
 
-#2, ACD_2L_starting2L_15yrAfter1L - second rotation happens 15 years after 1st rotation (in t-1) (as in reality) 
-#- this is the case for all scenarios that start 2L
+#2, ACD_2L_starting2L_15yrAfter1L - 
+#here the second rotation happens 15 years after 1st rotation 
+#( the second rotation is assumed to have happened in t-1, before our scenarios start) 
+# We incoroprate this for all scenarios that start 2L - as this more rapid re-harvest of forest more closely resembles the true 
+#logging dynamics in the landscape where we surveyed twice logged forests.
 
-#and also is true for scenarios that go from 1L (at the beginning of the scenarios) -> 2L....
+
+#i.e in   t-16----t-15 --------------------------t-1--------t-0------------------------------------t-60
+#         P        1L                             2L        2L                                      2L
+
+#We also make this true for scenarios that go from 1L (at the beginning of the scenarios) -> 2L....
 #....which is operationalised by not allowing 1L-2L transitions for 15 years....see below
 
 #3. twice_logged_delays  - second rotation happens at varying intervals after the once-logging from 15-30 years, depending on the harvesting delay. 
@@ -376,8 +369,7 @@ primary_Vals <- zeroPrim %>% rbind(primary_Vals)
 # the delay matters because if the second harvest happens after a big time delay (e.g. 25 yrs) then ACD was recovering all this time in once-logged, so the 2nd harvest leaves behind higher ACD 
 #NB - no logging of 1L -> 2L is allowed in the first 15 yrs, as the forest was logged in t-1. 
 
-
-#----#calculate for 1&2 (twice-logged) ------
+#define some key params and functions ####
 
 #Above ground carbon in twice-logged straight after logging (y-intercept)
 print(ACD_2L_yr0_30yrAfter1L_30yrAfter1L)  #this assumes second logging happens 30 years after once-logging 
@@ -391,14 +383,18 @@ Slope_1L <- tidy(Slope_1L)$estimate[2]
 years <- 0:60
 
 # Calculate the predicted y-values for each year
+#1.
 predicted2L_values <- ACD_2L_yr0_30yrAfter1L_30yrAfter1L + Slope_1L * years # #this assumes second logging happens 30 years after once-logging
+
+#2.
 predicted2L_values_starting <- ACD_2L_starting2L_15yrAfter1L + Slope_1L * years#this assume second logging happens 15 yrs after first logging, at year t-1
 
-
 # Calculate the lower and upper limits of the confidence intervals
+#assume sameCI as once-logged
 error_2L <- L1_R %>% filter(habitat == "once-logged") %>%
   mutate(error95 = ACD - lwr_ACD) %>%
-  select(error95)
+  select(error95) %>%  
+  cbind(true_year = 0:60)
 
 twice_log_fun <- function(predVals){
   
@@ -426,12 +422,7 @@ twice_log_fun <- function(predVals){
   
 }
 
-
-error_2L <- error_2L %>% cbind(true_year = 0:60)
-
-
-
-# for 1: P -> 2L
+## for 1: P -> 2L ####
 twice_L_30yrPost <-  twice_log_fun(predicted2L_values) %>% cbind(original_habitat = "primary")%>% select(-true_age)
 
 #adjust primary -> 2L so that is undergoes a once-logged conversion, then a twice-logged conversion after 30 yrs 
@@ -440,7 +431,8 @@ names(twice_L_30yrPost)
 yr0_primary_2L <- primary_Vals  %>% slice(1) %>% rename(true_year = true_age)  %>% 
   mutate(habitat = "twice-logged",
          original_habitat = "primary", 
-         functional_habitat = "primary" )
+         functional_habitat = "primary" ) %>% 
+  rename(functionalhabAge = time_since_intervention)
 
 yr1_30_primary_2L <- oncelogged  %>% rename(true_year = true_age) %>%
   filter(true_year >= 1, true_year <= 29) %>%  
@@ -448,160 +440,73 @@ yr1_30_primary_2L <- oncelogged  %>% rename(true_year = true_age) %>%
          original_habitat = "primary", 
          functional_habitat = "once-logged")
 
-beginning_habs_primary_2L <- rbind(yr0_primary_2L,yr1_30_primary_2L) %>% 
-  rename(functionalhabAge = time_since_intervention)
+beginning_habs_primary_2L <- rbind(yr0_primary_2L,yr1_30_primary_2L) 
 
 twice_L_30yrPost <- twice_L_30yrPost %>% mutate(true_year = true_year + 30) %>%
   rename(functionalhabAge = time_since_intervention) %>% 
   filter(true_year <61) %>% 
   mutate(functional_habitat = "twice-logged")
 
-twice_L_30yrPost <- rbind(twice_L_30yrPost,beginning_habs_primary_2L) 
+#final P_2L (i.e. 1. df)
+P_2L_df <- rbind(beginning_habs_primary_2L,twice_L_30yrPost) 
 
-#for 2L -> 2L 
-twice_L_15yrPost <-  twice_log_fun(predicted2L_values_starting) %>% cbind(original_habitat = "twice-logged") %>%  
+##for 2.(2L -> 2L) #### 
+L2_2L_df <-  twice_log_fun(predicted2L_values_starting) %>% cbind(original_habitat = "twice-logged") %>%  
   cbind(functional_habitat = "twice-logged") %>% 
   rename(functionalhabAge = time_since_intervention) %>% 
   select(-true_age)
 
+##for 3. (1L->2L)####
+#nb we can't harvest once-logged forest until year 15 in our scenarios
+#because once-logging happeneng -t15 years before scenario start 
+#for parcels beginning as once-logged 
 
-from2L_2L_AND_Primary_2L <- rbind(twice_L_30yrPost) %>%  #"Recovering where yr 0 harvests 30-yr 1L"),
-  rbind(twice_L_15yrPost)  # "Recovering where yr 0 harvests once AND twice")
+oncelogged <- L1_R %>%
+  filter(habitat == "once-logged") %>% 
+  filter(true_age >14) %>% 
+  filter(true_age <45) %>% 
+  rename(functionalhabAge = time_since_intervention) %>%
+  #once-logged forest starting in our scenarios is actually 15 yrs old already 
+  #so this corrects for this. 
+  mutate(functionalhabAge = functionalhabAge - 15) %>% 
+  mutate(original_habitat = "once-logged", 
+         habitat = "twice-logged") %>% 
+  cbind(functional_habitat = "once-logged") 
 
-#-------------  #calculate for 3  ----------------
+twicelogged <- P_2L_df %>% 
+  filter(functional_habitat == "twice-logged") %>% 
+  mutate(original_habitat = "once-logged") %>%  
+  rename(true_age = true_year)
 
-oncelogged <- L1_R %>% filter(habitat == "once-logged") %>% filter(true_age <30)
-
-#calcaulate carbon for parcel, starting with a once-logged forest, which changes 
-#depending on the delay before re-harvest (as ACD is recovering in 1L forest pre-harvest)
-twice_logged_delays <- oncelogged %>% mutate(harvest2ndACD_loss = harvest2ndACD_loss, 
-                                             harvest_delay = time_since_intervention) %>% 
-  #calculate ACD in year 0 from 2nd harvest, which is contingent on the delay time 
-  mutate(ACD_twicelogged_yr0 = ACD - harvest2ndACD_loss) %>%  
-  filter(harvest_delay >14) 
-
-
-#only estimate 1L -> 2L after a delay of 15 years, because not allowed to harvest once-logged that harvested in t-1 imeddiately, have to wait for 15 yrs
-years <-0:60
-harvest_delay_vt = 15:29
-rep_delay <- length(years)
-
-# Define a function to calculate over 60 years the ACD of twice logging 1L forests after different delays 
-twice_logged_delayed_fun <- function(i) {
-  result <- i + Slope_1L * years
-  result_df <- data.frame(ACD = result, true_year = years)
-  return(result_df)
-}
-
-#estimate ACD of going from 1L -> with different time delays..
-predicted2L_values_list <- lapply(twice_logged_delays$ACD_twicelogged_yr0, twice_logged_delayed_fun)
-
-twice_logged_delays <- do.call(rbind, predicted2L_values_list) %>% 
-  cbind((harvest_delay = rep(harvest_delay_vt, each =rep_delay))) %>% rename(harvest_delay =3) %>% 
-  cbind(original_habitat = "once-logged", 
-        habitat = "twice-logged")  %>% 
-  left_join(error_2L, by = "true_year") %>%  
-  mutate(lwr_ACD = ACD - error95, 
-         upr_ACD = ACD + error95) %>% 
+#nb - remember, when operationalising this transition in
+#next script, remember to filter out any delay <15
+#this will ensure that we enable once-logged forest to regrow for a min
+#of 15 from scenario start (= to 30 yrs since harvest, at t-15)
+L1_L2_df <- rbind(oncelogged, twicelogged)
   
-  # #rough method of calculating ACD after second harvest assumes 0 ACD upon immediate reharest (e.g. with no time delay since first logging)
-  # # this is unrealistic. Manually make it so that second harvest never leads to a lower ACD or error then 10 
-  # # # this is wrong. But we also know from Riutta et al. that twice-logged forests are net sinks for first 10 years, so it's not mad to limit early year ACD recovery to artifially reduce carbon benefits
-  #  mutate(
-  #   lwr_ACD = ifelse(lwr_ACD < 10, 10, lwr_ACD),
-  #   ACD = ifelse(ACD < 10, 10, ACD),
-  #   upr_ACD = ifelse(upr_ACD < 10, 10, upr_ACD)) %>%
-  
-  #MANUALLY CAUSE CARBON TO PLATEU IN  FOREST ONCE IT REACHES OG VALUES 
-  mutate(
-    ACD = ifelse(ACD >max_val , NA, ACD),
-    lwr_ACD = ifelse(ACD > max_val, NA, lwr_ACD),
-    upr_ACD = ifelse(ACD > max_val, NA, upr_ACD)) %>%  
-  #take on the max value if NA
-  mutate(
-    ACD = ifelse(is.na(ACD), max(ACD, na.rm = TRUE), ACD),
-    lwr_ACD = ifelse(is.na(lwr_ACD), max(lwr_ACD, na.rm = TRUE), lwr_ACD),
-    upr_ACD = ifelse(is.na(upr_ACD), max(upr_ACD, na.rm = TRUE), upr_ACD),
-    time_since_intervention = true_year) %>% 
-  
-  #make true year correct 
-  mutate(true_year = true_year + harvest_delay, 
-         functional_habitat = "twice-logged") %>%  
-  select(-error95)
-
-
-
-#add time delays #### 
-
-#NB - for forest that starts off as once-logged (i.e. where first harvesting happens in yr t-1, we are 
-#only allowed to second harvest in yr 15). Yr 0 of 1L->2L in our scenarios is therefore actually 
-#,technically, 15 yr once-logged forest.
-
-#get once-logged -> once logged for the forest during the delay, before harvest 
-delay_years_1L <- list()
-
-for (i in harvest_delay_vt) {
-  # Filter the dataframe based on the "true_age" value between 0 and i
-  filtered_df <- oncelogged %>%
-    filter(true_age >= 0, true_age <= i) %>%
-    mutate(harvest_delay = i)
-  
-  # Add the filtered dataframe to the named list with a descriptive name
-  delay_years_1L[[paste0( i)]] <- filtered_df
-}
-
-delay_years_1L <- bind_rows(delay_years_1L) %>% 
-  # Remove rows where time_since_intervention is equal to harvest_delay
-  filter(time_since_intervention != harvest_delay) %>%  
-  mutate(habitat = "twice-logged") %>% 
-  cbind(original_habitat = "once-logged") %>% 
-  cbind(functional_habitat = "once-logged") %>%  
-  rename(true_year= true_age)
-
-
-#-----output of 3 ------
-oncelogged_to_twice_logged <- rbind(twice_logged_delays,delay_years_1L) %>% 
-  rename(functionalhabAge = time_since_intervention) %>% 
-  filter(true_year < 61) %>%  
-  group_by(harvest_delay) %>% 
-  arrange(true_year) %>% ungroup
-
-rownames(oncelogged_to_twice_logged) <- NULL
 #---- # View each twice-logged 60yr typology schedule -------------------------
 
 
 #---- Plotting 1&2 -----
-p <- ggplot(from2L_2L_AND_Primary_2L, aes(x = true_year, y = ACD, color = original_habitat, linetype = original_habitat)) +
+p1 <- ggplot(P_2L_df , aes(x = true_year, y = ACD, color = original_habitat, linetype = original_habitat)) +
   geom_line() +
   scale_y_continuous(limits = c(0, 250)) +
   theme_bw()
 
-p
-
-# Filter the data to get the label positions for "primary" habitat with "logged once here" and "logged twice here"
-label_data_once <- from2L_2L_AND_Primary_2L %>%
-  filter(original_habitat == "primary") %>%
-  slice_min(true_year)
-
-label_data_twice <- from2L_2L_AND_Primary_2L %>%
-  filter(original_habitat == "twice-logged") %>%
-  slice_min(true_year)
-
-p + 
-  geom_text(data = label_data_once, aes(label = "ReLogged after 30 yrs, original habitat is primary"), hjust = 0, vjust = 0) +
-  geom_text(data = label_data_twice, aes(label = "Logged twice before start of scenario, oringal habitat is twice-logged"), hjust = 0, vjust = 1, color = "red")
-
-#Looks good; minimum 15 years delay, then harvest, then
-oncelogged_to_twice_logged  %>% 
-  group_by(harvest_delay) %>% 
-  ggplot(aes(x = true_year, y = ACD, colour = as.factor(harvest_delay))) +
+p2<- ggplot(L2_2L_df , aes(x = true_year, y = ACD, color = functional_habitat, linetype = original_habitat)) +
   geom_line() +
   scale_y_continuous(limits = c(0, 250)) +
   theme_bw()
+
+p3<- ggplot(L1_L2_df , aes(x = true_age, y = ACD, color = functional_habitat, linetype = original_habitat)) +
+  geom_line() +
+  scale_y_continuous(limits = c(0, 250)) +
+  theme_bw()
+
+
+plot_grid(p1, p2,p3, col =2)
 
 #------ print all twice-logged typologies ---------
-oncelogged_to_twice_logged
-from2L_2L_AND_Primary_2L
 
 
 #--- Add deforested ----- 
