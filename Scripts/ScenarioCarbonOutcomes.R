@@ -3,6 +3,20 @@
 #this code calculates carbon consequences of different scenarios
 #commented out code-blocks enable to assessment of a single scenario, to see how the code works.
 
+
+#!!!!!!!!!!!
+#GC 24.06.2024
+#TO DO: 
+
+#1. Correct for the fact that habitat starting as 1L cannot 
+#be harvested in the first 15 years
+#SOLUTION: If original_habitat = once-logged and habitat = twice-logged, filter harvest_delay >15
+
+
+#2. For efficiency in joins, if functionalHab = primary or deforested, make functionalhabAge = 0.
+#I changed the hab carbon for these fix values to only give 
+#values for 0 functionalHabAge
+
 library(tidyr)
 library(ggplot2)
 library(data.table)
