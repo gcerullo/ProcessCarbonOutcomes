@@ -278,7 +278,29 @@ L1_R <- NEWDAT %>%
     upr_ACD = ifelse(is.na(upr_ACD), max(upr_ACD, na.rm = TRUE), upr_ACD)
   )
 
+#get first 3yrs of 1L 
 oncelogged <- L1_R %>% filter(habitat == "once-logged") %>% filter(true_age < 31)
+
+#get restored and once logged properly organised 
+L1_R <- L1_R %>% 
+  select(-time_since_intervention) %>%  
+  rename(functionalhabAge = true_age, 
+         functional_habitat = habitat) 
+
+#organise P - 1L and 1L - 1L transitions 
+OnceLogged <- L1_R %>% filter(functional_habitat == "once-logged")
+P_1L_df <- OnceLogged %>% mutate(original_habitat = "primary", 
+                                 habitat = "once-logged")
+
+L1_1L_df <- OnceLogged %>% mutate(original_habitat = "once-logged", 
+                                  habitat = "once-logged")
+
+#organise P - R and 1L-R transitions 
+Restored <- L1_R %>% filter(functional_habitat == "restored") 
+P_R_df <- Restored %>% mutate(original_habitat = "primary", 
+                              habitat = "restored")
+L1_R_df <- Restored %>% mutate(original_habitat = "once-logged", 
+                              habitat = "restored")  
 
 #------------- get correct years -------------
 #make corrections so that we have values for all (and for the correct) years
@@ -303,41 +325,72 @@ zero_albPlant <- data.frame(ACD = 0,
                             functionalhabAge = 0)
 
 
-plantation <- zero_eucPlant %>% rbind(zero_albPlant) %>% 
+plantation_df <- zero_eucPlant %>% rbind(zero_albPlant) %>% 
   rbind(plantation) %>% 
   rename(functional_habitat = habitat)
 
 #select all hab crosses possible for plantation 
-habcrossPlant <- hab_by_year %>% 
-  filter(functional_habitat == "albizia_current"| functional_habitat =="eucalyptus_current") %>%  
+habcrossAlb <- hab_by_year %>% 
+  filter(functional_habitat == "albizia_current") %>%  
   select(original_habitat, habitat) %>% 
   unique()
 
+#select all hab crosses possible for plantation 
+habcrossPlantEuc <- hab_by_year %>% 
+  filter(functional_habitat =="eucalyptus_current") %>%  
+  select(original_habitat, habitat) %>% 
+  unique()
+
+
 #expand grid so that we have functionalhabAge for all transitions
-plant_df <- expand_grid(plantation,habcrossPlant)
+alb_df <- plantation_df %>% 
+  filter(functional_habitat =="albizia_current") %>%
+  expand_grid(habcrossAlb)
+
+euc_df <- plantation_df %>% 
+  filter(functional_habitat =="eucalyptus_current") %>%
+  expand_grid(habcrossPlantEuc)
+
+plant_df <- rbind(alb_df,euc_df)
 
 
 #----60 yrs of primary ----
 #2.make primary carbon over 60 years
 
-primary_Vals <- primary_Vals %>% rename
+primary <- primary_Vals %>% 
+  rename(functional_habitat = habitat) %>%  
+  cbind(functionalhabAge = 0)
 
-primary_Vals <- data.frame(true_age = seq(1,60, by = 1)) %>% 
-  cbind(primary_Vals[rep(1, 60), ]) %>% 
-  mutate(time_since_intervention = true_age)
+primary_cross <- hab_by_year %>% 
+  filter(functional_habitat == "primary") %>%  
+  select(original_habitat, habitat) %>% 
+  unique()
 
-p
+primary_df <- expand_grid(primary,primary_cross)
+
+#--- Add deforested ----- 
+deforested <- data.frame(functionalhabAge = 0, 
+                           ACD = 0, 
+                           lwr_ACD =0, 
+                           upr_ACD = 0, 
+                           functional_habitat = "deforested")
 
 
-#add zero year
-zeroPrim <- data.frame(true_age = 0,
-                       ACD = 203, 
-                       lwr_ACD = 160, 
-                       upr_ACD = 250, 
-                       habitat = "primary", 
-                       time_since_intervention = 0)
+deforested_cross <- hab_by_year %>% 
+  filter(functional_habitat == "deforested") %>%  
+  select(original_habitat, habitat) %>% 
+  unique()
 
-primary_Vals <- zeroPrim %>% rbind(primary_Vals)
+deforested_df <- expand_grid(deforested,deforested_cross)
+
+#combine all carbon except for cases with more complex 2L typologies, defined below
+carbhabs <- deforested_df %>% 
+  rbind(primary_df) %>%
+  rbind(plant_df) %>%
+  rbind(P_R_df) %>% 
+  rbind(L1_R_df) %>%
+  rbind(P_1L_df) %>% 
+  rbind(L1_1L_df)
 
 
 #----60 yrs of twice-logged ----
@@ -376,8 +429,8 @@ print(ACD_2L_yr0_30yrAfter1L_30yrAfter1L)  #this assumes second logging happens 
 print(ACD_2L_starting2L_15yrAfter1L) #this assume second logging happens 15 yrs after first logging, at year t-1...this is the ACD for scenarios starting as twice logged
 
 # Define the y-intercept, slope, and confidence intervals
-Slope_1L_df <- L1_R %>% filter(habitat == "once-logged")   
-Slope_1L <-  lm(ACD ~ time_since_intervention, data = Slope_1L_df)
+Slope_1L_df <- L1_R %>% filter(functional_habitat == "once-logged")   
+Slope_1L <-  lm(ACD ~ functionalhabAge, data = Slope_1L_df)
 # Extract the slope using tidy()
 Slope_1L <- tidy(Slope_1L)$estimate[2]  
 years <- 0:60
@@ -391,7 +444,7 @@ predicted2L_values_starting <- ACD_2L_starting2L_15yrAfter1L + Slope_1L * years#
 
 # Calculate the lower and upper limits of the confidence intervals
 #assume sameCI as once-logged
-error_2L <- L1_R %>% filter(habitat == "once-logged") %>%
+error_2L <- L1_R %>% filter(functional_habitat == "once-logged") %>%
   mutate(error95 = ACD - lwr_ACD) %>%
   select(error95) %>%  
   cbind(true_year = 0:60)
@@ -423,38 +476,45 @@ twice_log_fun <- function(predVals){
 }
 
 ## for 1: P -> 2L ####
-twice_L_30yrPost <-  twice_log_fun(predicted2L_values) %>% cbind(original_habitat = "primary")%>% select(-true_age)
+twice_L_30yrPost <-  twice_log_fun(predicted2L_values) %>% 
+  cbind(original_habitat = "primary")%>%
+  select(-true_age)
 
 #adjust primary -> 2L so that is undergoes a once-logged conversion, then a twice-logged conversion after 30 yrs 
 names(twice_L_30yrPost)
 
-yr0_primary_2L <- primary_Vals  %>% slice(1) %>% rename(true_year = true_age)  %>% 
-  mutate(habitat = "twice-logged",
-         original_habitat = "primary", 
-         functional_habitat = "primary" ) %>% 
-  rename(functionalhabAge = time_since_intervention)
+# yr0_primary_2L <- primary_Vals  %>% slice(1) %>% 
+# #rename(true_year = true_age)  %>% 
+#   mutate(habitat = "twice-logged",
+#          original_habitat = "primary", 
+#          functional_habitat = "primary",
+#          functionalhabAge = 0) 
+
 
 yr1_30_primary_2L <- oncelogged  %>% rename(true_year = true_age) %>%
   filter(true_year >= 1, true_year <= 29) %>%  
   mutate(habitat = "twice-logged",
          original_habitat = "primary", 
-         functional_habitat = "once-logged")
+         functional_habitat = "once-logged") %>%  
+  rename(functionalhabAge = true_year) %>%  
+  select(-time_since_intervention)
 
-beginning_habs_primary_2L <- rbind(yr0_primary_2L,yr1_30_primary_2L) 
+# beginning_habs_primary_2L <- rbind(yr0_primary_2L,yr1_30_primary_2L) 
 
 twice_L_30yrPost <- twice_L_30yrPost %>% mutate(true_year = true_year + 30) %>%
   rename(functionalhabAge = time_since_intervention) %>% 
   filter(true_year <61) %>% 
-  mutate(functional_habitat = "twice-logged")
+  mutate(functional_habitat = "twice-logged") %>% 
+  select(-true_year)
 
 #final P_2L (i.e. 1. df)
-P_2L_df <- rbind(beginning_habs_primary_2L,twice_L_30yrPost) 
+P_2L_df <- rbind(yr1_30_primary_2L,twice_L_30yrPost) 
 
 ##for 2.(2L -> 2L) #### 
 L2_2L_df <-  twice_log_fun(predicted2L_values_starting) %>% cbind(original_habitat = "twice-logged") %>%  
   cbind(functional_habitat = "twice-logged") %>% 
   rename(functionalhabAge = time_since_intervention) %>% 
-  select(-true_age)
+  select(-c(true_age, true_year))
 
 ##for 3. (1L->2L)####
 #nb we can't harvest once-logged forest until year 15 in our scenarios
@@ -462,21 +522,19 @@ L2_2L_df <-  twice_log_fun(predicted2L_values_starting) %>% cbind(original_habit
 #for parcels beginning as once-logged 
 
 oncelogged <- L1_R %>%
-  filter(habitat == "once-logged") %>% 
-  filter(true_age >14) %>% 
-  filter(true_age <45) %>% 
-  rename(functionalhabAge = time_since_intervention) %>%
+  filter(functional_habitat == "once-logged") %>% 
+  filter(functionalhabAge >14) %>% 
+  filter(functionalhabAge <45) %>% 
   #once-logged forest starting in our scenarios is actually 15 yrs old already 
   #so this corrects for this. 
   mutate(functionalhabAge = functionalhabAge - 15) %>% 
   mutate(original_habitat = "once-logged", 
-         habitat = "twice-logged") %>% 
-  cbind(functional_habitat = "once-logged") 
+         habitat = "twice-logged") 
 
 twicelogged <- P_2L_df %>% 
   filter(functional_habitat == "twice-logged") %>% 
-  mutate(original_habitat = "once-logged") %>%  
-  rename(true_age = true_year)
+  mutate(original_habitat = "once-logged") 
+
 
 #nb - remember, when operationalising this transition in
 #next script, remember to filter out any delay <15
@@ -488,212 +546,34 @@ L1_L2_df <- rbind(oncelogged, twicelogged)
 
 
 #---- Plotting 1&2 -----
-p1 <- ggplot(P_2L_df , aes(x = true_year, y = ACD, color = original_habitat, linetype = original_habitat)) +
+p3 <- ggplot(P_2L_df , aes(x = functionalhabAge, y = ACD, color = functional_habitat, linetype = original_habitat)) +
   geom_line() +
   scale_y_continuous(limits = c(0, 250)) +
   theme_bw()
 
-p2<- ggplot(L2_2L_df , aes(x = true_year, y = ACD, color = functional_habitat, linetype = original_habitat)) +
+p2<- ggplot(L2_2L_df , aes(x = functionalhabAge, y = ACD, color = functional_habitat, linetype = original_habitat)) +
   geom_line() +
   scale_y_continuous(limits = c(0, 250)) +
   theme_bw()
 
-p3<- ggplot(L1_L2_df , aes(x = true_age, y = ACD, color = functional_habitat, linetype = original_habitat)) +
+p3<- ggplot(L1_L2_df , aes(x = functionalhabAge, y = ACD, color = functional_habitat, linetype = original_habitat)) +
   geom_line() +
   scale_y_continuous(limits = c(0, 250)) +
   theme_bw()
 
+plot_grid(p1, p2,p3, col =2) # looks good (remember for 1L-2L, the once logged forest starts in functionhabAge = 0 at actually 15 yrs old)
 
-plot_grid(p1, p2,p3, col =2)
-
-#------ print all twice-logged typologies ---------
-
-
-#--- Add deforested ----- 
-deforested_c <- data.frame(true_age = seq(0,60), 
-                           ACD = 0, 
-                           lwr_ACD =0, 
-                           upr_ACD = 0, 
-                           habitat = "deforested") %>%  
-  mutate(time_since_intervention = true_age)
-
-
-#------ make all hab transitions ----------------
-names(plantation)
-names(primary_Vals)
-names(L1_R)
-
-
-combined <- plantation %>%  rbind(primary_Vals) %>% rbind(L1_R) %>% rbind(deforested_c) %>% rename(functional_habitat = habitat,
-                                                                                                   functionalhabAge = time_since_intervention,
-                                                                                                   true_year = true_age) 
-
-#filter hab_years to remove the special cases we have manually calculated above 
-hab_by_yearFilt <- hab_by_year  %>% filter(
-  !(original_habitat == "once-logged" & habitat == "twice-logged") &
-    !(original_habitat == "primary" & habitat == "twice-logged") &
-    !(original_habitat == "twice-logged" & habitat == "twice-logged") #&
-  # !(original_habitat == "once-logged" & habitat == "once-logged")
-) 
-
-hab_by_yearFilt %>% select(original_habitat,habitat) %>% unique
-
-#stays twice logged
-stays2L <- from2L_2L_AND_Primary_2L %>% filter(habitat == original_habitat) %>%  
-  select(true_year, functional_habitat, ACD, lwr_ACD, upr_ACD) %>% mutate(functionalhabAge = true_year)
-
-combined <- combined %>% rbind(stays2L) %>% 
-  left_join(hab_by_yearFilt, by = c(  "functional_habitat" , "functionalhabAge", "true_year"), 
-            relationship = "many-to-many")
+#------ combine all hab transitions ----------------
+#24.06.24!!!!####
+#COME BACK TO HERE ####
+carbhabs <- carbhabs %>%  
+  rbind(P_2L_df) %>% 
+  rbind(L2_2L_df) %>% 
+  rbind(L1_L2_df)
 
 
 #check correct number of rows for each hab transitions 
-#XX <- combined %>% group_by(original_habitat, habitat) %>% count
-
-# already has hab transitions 
-oncelogged_to_twice_logged #already has harvest delays (only allows delays of >14...have to wait 15 years from first harvest in yr t-1)
-from2L_2L_AND_Primary_2L #no harvest delays 
-
-
-# ------ add harvest time-delay to scenarios -----------------
-# define the delay before which habitat transition happens 
-# here we apply a time window of 30 years, apply harvesting annually
-delay <- seq(1:29)
-
-#----create harvest delay function ----
-#hab_by year currently assumes all harvesting starts in year 0. 
-#what if delay harvests/first plantation plants? 
-output_list <- vector("list", length(delay))
-
-add_delay <- function(X) {
-  
-  # habTrans <-combined 
-  #habTrans <- from2L_2L_AND_Primary_2L
-  
-  habTrans <- X  
-  
-  
-  #filter data where habitat stays the same (e.g. once-logged stays once-logged)
-  delay_with_zero <- c(0, delay)
-  
-  #store values for delay years, to join in for showing recovery in delay period 
-  untransitioned_habs <- habTrans %>% filter(habitat == original_habitat) %>%  
-    select(true_year, functional_habitat, ACD, lwr_ACD, upr_ACD) 
-  
-  #store habitats that undergo no transition 
-  untransitioned_habs_delay <- habTrans %>% filter(habitat == original_habitat) %>%  
-    crossing(delay_with_zero) %>% 
-    rename(harvest_delay = delay_with_zero)
-  
-  #filter only data where there are transiions
-  habTrans <- habTrans %>% filter(!habitat == original_habitat)
-  
-  hab_by_year0 <- habTrans %>% cbind(harvest_delay = 0)
-  #ACD in original 
-  for (i in delay) {
-    #make a datafrmae of delayed years to add to beginning, to cause delay and leave habitat as original cover for the time of delay
-    yearZ <-   habTrans %>%
-      filter(true_year == 0) %>%
-      uncount(i) %>%
-      group_by(original_habitat,habitat) %>%
-      mutate(true_year = seq_along(true_year)-1,
-             functionalhabAge = seq_along(true_year)-1) %>%
-      ungroup() %>% 
-      #givve ACD in delay years an NA values   
-      mutate(ACD = NA, 
-             lwr_ACD = NA,
-             upr_ACD = NA) %>%  
-      
-      #if ACD is NA, give the correct recovery delay years
-      left_join(untransitioned_habs, by = c("true_year", "functional_habitat")) %>%
-      mutate(
-        ACD = ifelse(is.na(ACD.x), ACD.y, ACD.x),
-        lwr_ACD = ifelse(is.na(lwr_ACD.x), lwr_ACD.y, lwr_ACD.x),
-        upr_ACD = ifelse(is.na(upr_ACD.x), upr_ACD.y, upr_ACD.x)
-      ) %>%
-      select(-ACD.x, -lwr_ACD.x, -upr_ACD.x, -ACD.y, -lwr_ACD.y, -upr_ACD.y) %>% 
-      filter(true_year <61) %>%  
-      
-      #catch cases where original_habitat is primary, and delay year carbon remains NA (caused by untransitioned_habs not having primary - primary transitioned)
-      
-      mutate(
-        ACD = ifelse(original_habitat == "primary" &
-                       functional_habitat == "primary" &
-                       is.na(ACD),
-                     203, ACD),
-        lwr_ACD = ifelse(original_habitat == "primary" &
-                           functional_habitat == "primary" &
-                           is.na(lwr_ACD),
-                         160, lwr_ACD),
-        upr_ACD = ifelse(original_habitat == "primary" &
-                           functional_habitat == "primary" &
-                           is.na(upr_ACD),
-                         250, upr_ACD)
-      )
-    
-    #give age of original habitat during harvest delay, except for primary and deforested
-    # mutate(functionalhabAge = case_when(
-    #   functional_habitat != "primary" & functional_habitat != "deforested" ~ true_year,
-    #   TRUE ~ functionalhabAge)) 
-    
-    #push true years by the length of the delay (e.g. add in 0s) and remove true year >60 
-    delayed_df <-habTrans %>%   
-      mutate(true_year = true_year + i ) %>% 
-      filter(true_year <61)
-    
-    #combine then remove beyond 60th years 
-    output <- yearZ %>%  rbind(delayed_df) %>% cbind(harvest_delay = paste(i))
-    
-    output_list[[i]] <- output
-  }
-  # 
-  # #make sure we have all the years with same amount of rows
-  #x <-  rbindlist(output_list)
-  # test <- x %>% group_by(true_year) %>% count()
-  # 
-  # #this hab_by_year now includes the temporal dimension assuming different delays until first harvest
-  habTrans<- rbindlist(output_list) %>% rbind(hab_by_year0)
-  # 
-  # #combine the transitioning and non-transitioning data 
-  habTrans <- rbind(habTrans,untransitioned_habs_delay)
-  
-}
-
-#----apply harvest delay function ----
-from2L_2L_AND_Primary_2L <- add_delay(from2L_2L_AND_Primary_2L)
-combined <- add_delay(combined)
-XX <- combined %>% 
-  group_by(original_habitat,habitat,harvest_delay)  %>% count
-
-#----combine all habitat transitionssingle dataframe ----
-allHabCarbon_60yrACD_withDelays <- combined %>% rbind(from2L_2L_AND_Primary_2L) %>% rbind(oncelogged_to_twice_logged)
-
-
-#----final hard-coded correction----
-
-# we are still missing all the delay year data from original twice-logged habitat
-# mannually add this in
-allHabCarbon_60yrACD_withDelays <- allHabCarbon_60yrACD_withDelays %>% left_join(stays2L, by = c("true_year", "functional_habitat","functionalhabAge")) %>%
-  mutate(
-    ACD = ifelse(original_habitat == "twice-logged" &
-                   functional_habitat == "twice-logged" &
-                   is.na(ACD.x),
-                 ACD.y, ACD.x),
-    lwr_ACD = ifelse(original_habitat == "twice-logged" &
-                       functional_habitat == "twice-logged" &
-                       is.na(lwr_ACD.x),
-                     lwr_ACD.y, lwr_ACD.x),
-    upr_ACD = ifelse(original_habitat == "twice-logged" &
-                       functional_habitat == "twice-logged" &
-                       is.na(upr_ACD.x),
-                     upr_ACD.y, upr_ACD.x)) %>%
-  select(-ACD.x, -lwr_ACD.x, -upr_ACD.x, -ACD.y, -lwr_ACD.y, -upr_ACD.y) %>%
-  filter(true_year <61) %>% unique()
-
-#check correct years for each habitat transition
-XX <- allHabCarbon_60yrACD_withDelays %>% 
-  group_by(original_habitat,habitat,harvest_delay)  %>% count
-
+XX <- carbhabs %>% group_by(original_habitat, habitat) %>% count
 
 #-----add belowground carbon change----
 
