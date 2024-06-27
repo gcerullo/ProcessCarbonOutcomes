@@ -9,12 +9,10 @@
 #and that 1L and R values plateu once they reach primary forest values)
 #I estimate ACD in twice-logged forest, and use three 2L typologies 
 
-#This code also
-#1. Adds different harvest delays 
-#2 Incorporates belowground carbon and necromass processes
+#This code also incorporates belowground carbon and necromass processes
 
 #Code output
-##NB this code outputs a master csv called "allHabCarbon_60yrACD_withDelays.csv"
+##NB this code outputs a master csv called "allHabCarbon_60yrACD.csv"
 # where ACD refers only to the raw above ground carbon density values and 
 #where full_carbon incorporate belowground processes.
 
@@ -546,7 +544,7 @@ L1_L2_df <- rbind(oncelogged, twicelogged)
 
 
 #---- Plotting 1&2 -----
-p3 <- ggplot(P_2L_df , aes(x = functionalhabAge, y = ACD, color = functional_habitat, linetype = original_habitat)) +
+p1 <- ggplot(P_2L_df , aes(x = functionalhabAge, y = ACD, color = functional_habitat, linetype = original_habitat)) +
   geom_line() +
   scale_y_continuous(limits = c(0, 250)) +
   theme_bw()
@@ -556,6 +554,7 @@ p2<- ggplot(L2_2L_df , aes(x = functionalhabAge, y = ACD, color = functional_hab
   scale_y_continuous(limits = c(0, 250)) +
   theme_bw()
 
+#once-logged line only actually allowed to be harvested at functionalHab age 15
 p3<- ggplot(L1_L2_df , aes(x = functionalhabAge, y = ACD, color = functional_habitat, linetype = original_habitat)) +
   geom_line() +
   scale_y_continuous(limits = c(0, 250)) +
@@ -617,7 +616,7 @@ belowground_fun <- function(x) {
 
     #Get year 1 ACD 
   yr1_filt <- x %>% filter(functionalhabAge == 1) %>% 
-    select(functional_habitat,original_habitat,habitat,harvest_delay,ACD, upr_ACD, lwr_ACD) %>%  
+    select(functional_habitat,original_habitat,habitat,ACD, upr_ACD, lwr_ACD) %>%  
     rename(ACDt1 = ACD, 
            uprACDt1 = upr_ACD, 
            lwrACDt1 = lwr_ACD) %>% unique
@@ -659,31 +658,44 @@ belowground_fun <- function(x) {
 }
   
 
-allHabCarbon_60yrACD_withDelays <- belowground_fun(allHabCarbon_60yrACD_withDelays)
+allHabCarbon_60yrACD <- belowground_fun(carbhabs)
 
 
 #reorder columns names 
-names(allHabCarbon_60yrACD_withDelays)
-allHabCarbon_60yrACD_withDelays <- allHabCarbon_60yrACD_withDelays %>%
+names(allHabCarbon_60yrACD)
+allHabCarbon_60yrACD <- allHabCarbon_60yrACD %>%
   select(original_habitat, habitat, functional_habitat,
-         true_year, functionalhabAge, harvest_delay,
+         functionalhabAge,
          full_carbon, full_carbon_lwr, full_carbon_upr,
          ACD,lwr_ACD, upr_ACD)
 
 
-#cursory plots ####
-#nb only plot delay yrs 1 & 29 so that you can see what's going on
-allHabCarbon_60yrACD_withDelays %>%
-  filter(harvest_delay %in% c(1, 29)) %>% 
-  ggplot(aes(x = true_year, y = full_carbon, colour = harvest_delay)) +
+#Plot functional habitat age for all transitions ####
+
+#without considering belowground/necromass carbon losses - ie. we get net carbon recovery in the first 10 years
+allHabCarbon_60yrACD %>%
+  ggplot(aes(x = functionalhabAge, y = ACD, colour = functional_habitat)) +
   geom_line() +
   facet_wrap(~original_habitat + habitat, scales = "free_y") +
   labs(x = "True Year", y = "Full Carbon") +
   theme_minimal()
 
+
+# considering belowground/necromass carbon losses - ie. we get assume following Mills,Riutta et al. 2023 PNAS
+# That in the first ten years after logging, gain in above-ground carbon are offset by belwground/necromass losses
+# We then conservatively assume full recovery of carbon drawdown thereafter
+allHabCarbon_60yrACD %>%
+  ggplot(aes(x = functionalhabAge, y = full_carbon, colour = functional_habitat)) +
+  geom_line() +
+  facet_wrap(~original_habitat + habitat, scales = "free_y") +
+  labs(x = "True Year", y = "Full Carbon") +
+  theme_minimal()
+
+
+
 #write Master output #####
 #NB this outputs a master output where ACD refers only to the raw above ground carbon values and 
 #where full_carbon incorporate belowground processes
 
-write.csv(allHabCarbon_60yrACD_withDelays, "Outputs/allHabCarbon_60yr_withDelays.csv")
+write.csv(allHabCarbon_60yrACD, "Outputs/allHabCarbon_60yrACD.csv")
 
