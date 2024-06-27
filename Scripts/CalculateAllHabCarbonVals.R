@@ -591,7 +591,8 @@ XX <- carbhabs %>% group_by(original_habitat, habitat) %>% count
 #conversion to plantation = JUST ACD (i.e. 0 belowground carbon)
 #ACDforest + BCforest(t < 10) = ACDforest_t1 ----------> #  #if there is a habitat transition then first 10 years have the same ACD  ACD recovery is offset by belowground losses, or more formally
 #ACDforest + BCforest(t > 10) = ACDforest_t + (ACDforest_t * 0.31)
-#################
+
+
 # #to test function below and see what's happening for replicatability 
 # replica <- allHabCarbon_60yrACD_withDelays %>%  filter(harvest_delay == 15)
 # x <- replica
@@ -659,7 +660,6 @@ belowground_fun <- function(x) {
   
 
 allHabCarbon_60yrACD <- belowground_fun(carbhabs)
-
 
 #reorder columns names 
 names(allHabCarbon_60yrACD)
