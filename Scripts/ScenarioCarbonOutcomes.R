@@ -4,19 +4,6 @@
 #commented out code-blocks enable to assessment of a single scenario, to see how the code works.
 
 
-#!!!!!!!!!!!
-#GC 24.06.2024
-#TO DO: 
-
-#1. Correct for the fact that habitat starting as 1L cannot 
-#be harvested in the first 15 years
-#SOLUTION: If original_habitat = once-logged and habitat = twice-logged, filter harvest_delay >15
-
-
-#2. For efficiency in joins, if functionalHab = primary or deforested, make functionalhabAge = 0.
-#I changed the hab carbon for these fix values to only give 
-#values for 0 functionalHabAge
-
 library(tidyr)
 library(ggplot2)
 library(data.table)
@@ -61,24 +48,53 @@ scenarios <- readRDS("Inputs/MasterAllScenarios_withHarvestDelays.rds")
 #read in carbon, with delays already calculated. ACD refers to just above-ground carbon 
 #all_carbon incorporates belowground/necromass processes. 
 #This is the output of the CalculateAllHabCarbonVals.R script
-hab_carbon <-read.csv("Outputs/allHabCarbon_60yr_withDelays.csv")
+hab_carbon <-read.csv("Outputs/allHabCarbon_60yrACD.csv") %>% select(-X)
 
 #--- run pipeline for a single scenario -------
 # # 
- # J <- rbindlist(scenarios,use.names=TRUE)
- # test_scen<-  J %>% filter(index == "all_primary_CY_D.csv 349") #a restored + primary scenario
+#  J <- scenarios[[1]]
+#  test_scen<-  J %>% filter(index == "all_primary_CY_D.csv 5") 
+
 
 #convert hab_harbon to data-table 
 hab_carbon <- as.data.table(hab_carbon)
 
+#carry out scenario corrections ####
+
+#1. Correct for the fact that habitat starting as 1L cannot 
+#be harvested in the first 15 years
+#2. For efficiency in joins, if functionalHab = primary or deforested, make functionalhabAge = 0.
+#I changed the hab carbon for these fix values to only give 
+#values for 0 functionalHabAge
+
+adjust_scenarios <- function(data) {
+  data %>%
+    mutate(
+      functionalhabAge = if_else(functional_habitat %in% c("primary", "deforested"), 0, functionalhabAge),
+      harvest_delay_numeric = as.numeric(stringr::str_extract(harvest_delay, "\\d+"))
+    ) %>%
+    filter(!(original_habitat == "once-logged" & habitat == "twice-logged" & harvest_delay_numeric > 15)) %>%
+    select(-harvest_delay_numeric)
+}
+
+scenarios <- lapply(scenarios, adjust_scenarios)
+
+
+#join carbon information to scenarios #### 
+
 carbon_fun <- function(x){
   x <- as.data.table(x)
   # Perform the left join operation in data table 
-  result <- x[hab_carbon, on = .(habitat = habitat, original_habitat = original_habitat), allow.cartesian = TRUE, nomatch = 0]
+  result <- x[hab_carbon, on = .(habitat = habitat,
+                                 original_habitat = original_habitat, 
+                                 functional_habitat = functional_habitat, 
+                                 functionalhabAge = functionalhabAge), nomatch = 0]
   
+  #equivalent to: 
   # x %>%  left_join(hab_carbon, by = c("habitat" = "habitat",
-  #                                     "original_habitat" = "original_habitat"),
-  #                                         relationship = "many-to-many")  
+  #                                     "original_habitat" = "original_habitat",
+  #                                      "functional_habitat" = "functional_habitat", 
+  #                                       "functionalhabAge" = "functionalhabAge") 
 }
 #!!!!
 #single scenario 
@@ -86,6 +102,8 @@ carbon_fun <- function(x){
 #!!!!
 
 scenarios <- lapply(scenarios,carbon_fun)
+
+
 
 # -------- ACD for a true year----------
 #Make the hard coded decision below of whether to use all_carbon
@@ -141,7 +159,8 @@ scenario_ACD_fun <- function(x){
            hab_ACD_year_upr = sum(upr_ACD_10km2_stag)) %>%  ungroup %>%  
     
     #select a single harvest delay worth of data, as we now have calculated ACD across harvesting schedules
-    filter(harvest_delay == 15) %>% select(-harvest_delay) %>% 
+    filter(harvest_delay == "delay 15") %>% 
+    select(-harvest_delay) %>% 
     
     
     
@@ -170,28 +189,37 @@ scenarios <- lapply(scenarios, scenario_ACD_fun)
 #JJ <- scenarios[[11]]
 #test <- JJ %>%  group_by(index, true_year) %>% count()
 
+#CONTUNINEU FROM HERE ####
 #---------- calculate carbon in starting landscape ------------
 
-#get ages of starting landscape thru time
-time_forSL <- hab_carbon %>% filter(harvest_delay == 0) %>% 
-  select(original_habitat, true_year) %>% unique() %>%  
-  rename(habitat = original_habitat, 
-         functionalhabAge = true_year)
+#get carbon of starting landscape
+starting_carbon <- hab_carbon %>% 
+  filter(original_habitat == habitat) %>%  
+  filter(!(original_habitat == "primary" & habitat == "primary")) %>%
+  filter(!(original_habitat == "deforested" & habitat == "deforested")) 
 
-#add hab ages to starting landscape 
-all_start_landscape <- all_start_landscape %>%
-  left_join(time_forSL, by = c("habitat"), relationship = "many-to-many")
+#calculate carbon per year per primary and deforested  
+starting_carbon_def <- hab_carbon %>%
+  filter(original_habitat == "deforested" & habitat == "deforested") %>%
+  uncount(61) %>% 
+  #add age 0-60 for primary
+  mutate(functionalhabAge = row_number() - 1)
 
-#add carbon to starting landscape
-starting_carbon <- hab_carbon %>% filter(harvest_delay == 0 & 
-                                           original_habitat == habitat)
+starting_carbon_prim <- hab_carbon %>%
+  filter(original_habitat == "primary" & habitat == "primary") %>%
+  uncount(61) %>% 
+  #add age 0-60 for primary
+  mutate(functionalhabAge = row_number() - 1)
 
-all_start_landscape <- all_start_landscape %>% 
-  left_join(starting_carbon, by = c("habitat", "functionalhabAge")) 
+starting_carbon <- starting_carbon %>% 
+  rbind(starting_carbon_def) %>%  
+  rbind(starting_carbon_prim)  
 
 
 #----- calculate all-start landscape ACD for a given year ------  
-all_start_landscape <- all_start_landscape %>%  
+all_start_landscapeCarbon <- all_start_landscape %>%  
+  left_join(starting_carbon, relationship = "many-to-many") %>% 
+  
   #calculate ACD per 10km2 and for each habitat type
   
   #  HARD-CODED DECISION!!!!! #### 
@@ -218,14 +246,13 @@ all_start_landscape <- all_start_landscape %>%
   #we have now summarise across multiple hab transitions - make sure we only have 1 
   group_by(scenarioStart, functionalhabAge) %>%  
   slice(1) %>% 
-  ungroup() 
-
-
-
-all_start_landscape_totalACD <- all_start_landscape %>% select(
-  scenarioStart, ACD_SL_tot,lwr_ACD_SL_tot,upr_ACD_SL_tot,functionalhabAge) %>% 
+  ungroup() %>% 
   rename(true_year = functionalhabAge)
 
+
+
+all_start_landscape_totalACD <- all_start_landscapeCarbon %>% select(
+  scenarioStart, ACD_SL_tot,lwr_ACD_SL_tot,upr_ACD_SL_tot,true_year)
 
 # --------- #add starting landscape ACD to each scenario ---------
 
