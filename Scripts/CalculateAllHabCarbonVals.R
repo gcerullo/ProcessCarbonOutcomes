@@ -503,6 +503,7 @@ twice_L_30yrPost <- twice_L_30yrPost %>% mutate(true_year = true_year + 30) %>%
   rename(functionalhabAge = time_since_intervention) %>% 
   filter(true_year <61) %>% 
   mutate(functional_habitat = "twice-logged") %>% 
+  mutate(functionalhabAge  = functionalhabAge +1)
   select(-true_year)
 
 #final P_2L (i.e. 1. df)
@@ -543,7 +544,7 @@ L1_L2_df <- rbind(oncelogged, twicelogged)
 #---- # View each twice-logged 60yr typology schedule -------------------------
 
 
-#---- Plotting 1&2 -----
+#---- Plotting 2L typologies -----
 p1 <- ggplot(P_2L_df , aes(x = functionalhabAge, y = ACD, color = functional_habitat, linetype = original_habitat)) +
   geom_line() +
   scale_y_continuous(limits = c(0, 250)) +
