@@ -502,8 +502,9 @@ yr1_30_primary_2L <- oncelogged  %>% rename(true_year = true_age) %>%
 twice_L_30yrPost <- twice_L_30yrPost %>% mutate(true_year = true_year + 30) %>%
   rename(functionalhabAge = time_since_intervention) %>% 
   filter(true_year <61) %>% 
-  mutate(functional_habitat = "twice-logged") %>% 
-  mutate(functionalhabAge  = functionalhabAge +1)
+  mutate(functional_habitat = "twice-logged") %>%
+  #remove yr 0
+  mutate(functionalhabAge  = functionalhabAge +1) %>% 
   select(-true_year)
 
 #final P_2L (i.e. 1. df)

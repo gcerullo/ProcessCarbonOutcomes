@@ -4,6 +4,9 @@
 #commented out code-blocks enable to assessment of a single scenario, to see how the code works.
 
 
+#!!27.06.24
+#Need to check because there's a 40 yr spike in carbon that's happening for some reason 
+
 library(tidyr)
 library(ggplot2)
 library(data.table)
@@ -37,9 +40,10 @@ all_start_landscape
 #Read in Data ####
 #----------------read in scenarios -------------------------------
 
-#yield matched scenarios where 1/30th of plantation conversion happens annually - with no time delay 
-##scenarios <- readRDS("Inputs/MasterAllScenarios.rds")
-#scenario_composition <- rbindlist(scenarios, use.names=TRUE)
+#yield matched scenarios where 1/30th of plantation conversion happens annually - with no time delay
+#temporarily read in to get composition
+scenarios_rm <- readRDS("Inputs/MasterAllScenarios.rds")
+scenario_composition <- rbindlist(scenarios_rm, use.names=TRUE)
 
 #yield matched scenarios where 1/30th of plantation conversion happens annually - WITH TIME DELAY 
 scenarios <- readRDS("Inputs/MasterAllScenarios_withHarvestDelays.rds")
@@ -52,8 +56,8 @@ hab_carbon <-read.csv("Outputs/allHabCarbon_60yrACD.csv") %>% select(-X)
 
 #--- run pipeline for a single scenario -------
 # # 
-#  J <- scenarios[[1]]
-#  test_scen<-  J %>% filter(index == "all_primary_CY_D.csv 5") 
+ J <- scenarios[[1]]
+ test_scen<-  J %>% filter(index == "all_primary_CY_D.csv 253") 
 
 
 #convert hab_harbon to data-table 
@@ -68,7 +72,8 @@ hab_carbon <- as.data.table(hab_carbon)
 #values for 0 functionalHabAge
 
 adjust_scenarios <- function(data) {
-  data %>%
+ 
+   data %>%
     mutate(
       functionalhabAge = if_else(functional_habitat %in% c("primary", "deforested"), 0, functionalhabAge),
       harvest_delay_numeric = as.numeric(stringr::str_extract(harvest_delay, "\\d+"))
@@ -79,6 +84,10 @@ adjust_scenarios <- function(data) {
 
 scenarios <- lapply(scenarios, adjust_scenarios)
 
+#!!!!
+#single scenario 
+test_scen <- adjust_scenarios(test_scen)
+#!!!!
 
 #join carbon information to scenarios #### 
 
@@ -98,7 +107,7 @@ carbon_fun <- function(x){
 }
 #!!!!
 #single scenario 
-#scenarios <- carbon_fun(test_scen)
+test_scen <- carbon_fun(test_scen)
 #!!!!
 
 scenarios <- lapply(scenarios,carbon_fun)
@@ -116,12 +125,15 @@ scenarios <- lapply(scenarios,carbon_fun)
 #4 calculate scenario ACD for a given year 
 
 #get number of staggered harvests to define harvest window (this must match harvests)
-J <- scenarios[[12]] 
+J <- scenarios[[4]] 
 harvest_window <- J$harvest_delay %>% unique %>% length()
 
+#get number of staggered harvests (fewer) for once-logged to twice-logged transitions
+harvest_window_short <-   scenarios[[4]] %>% filter(original_habitat == "once-logged" & habitat == "twice-logged") 
+harvest_window_short<- harvest_window_short$harvest_delay %>% unique %>% length()
 #!!!!!!
 #use for single scenario test
-# harvest_window <- 30
+ harvest_window <- 30
 #!!!!!!
 
 
@@ -131,7 +143,7 @@ scenario_ACD_fun <- function(x){
     
   #  HARD-CODED DECISION!!!!! #### 
   #include aboveground carbon only, or also belowground 
-   
+
   #INCLUDE BELOWGROUND PROCESSES 
   mutate(ACD_10km = full_carbon*1000, 
          lwr_ACD_10km =full_carbon_lwr *1000, 
@@ -151,8 +163,8 @@ scenario_ACD_fun <- function(x){
       upr_ACD_10km2_stag = upr_ACD_10km * num_parcels / harvest_window)  %>% 
     
 
-  #3. for each true year and habitat transition, calculate ACD combined across the staggered
-  #harvesting schedule (i.e. the ACD in a given habitat transition for a given year) 
+  #3. for each true year and habitat transition, calculate carbon combined across the staggered
+  #harvesting schedule (i.e. the carbon in a given habitat transition for a given year) 
   group_by(index,production_target, original_habitat, habitat, true_year) %>%  
     mutate(hab_ACD_year = sum(ACD_10km2_stag), 
            hab_ACD_year_lwr= sum(lwr_ACD_10km2_stag), 
@@ -180,10 +192,8 @@ scenario_ACD_fun <- function(x){
 
 # #!!!!
 #Single scenario 
-# scenTEST <- scenario_ACD_fun(scenarios)
-# singleYear <- scenTEST %>% filter(true_year == 9)
-# scenarios <- scenario_ACD_fun(scenarios)
-#!!!!
+test_scen <- scenario_ACD_fun(test_scen)
+#
 
 scenarios <- lapply(scenarios, scenario_ACD_fun)
 #JJ <- scenarios[[11]]
@@ -286,7 +296,7 @@ plot_data_df_05 %>%
   #!!!
   #scenarios %>% 
   #!!!
-  filter(scenarioName %in% c("all_primary_CY_D.csv", "mostly_1L_CY_D.csv", "mostly_2L_CY_D.csv")) %>% 
+ # filter(scenarioName %in% c("all_primary_CY_D.csv", "mostly_1L_CY_D.csv", "mostly_2L_CY_D.csv")) %>% 
   
   ggplot(aes(true_year, scen_ACD_year/1000000, group = index,colour = index)) +
   geom_line() +
@@ -307,7 +317,23 @@ plot_data_df_05 %>%
 # ggsave("figures/occupancy_estimates.png", units="mm", 
 #        height=120*fig_scale, width=115*fig_scale)
 
+##WHAT'S WITH THE 40 YR DIP?
+#something is happening at yr 45 for primary - twice-logged transitions, 
+#for a single year, there is a big dip. 
 
+spike_scenarios <- plot_data_df %>% group_by(scenarioStart) %>% 
+filter(production_target == 0.5) %>%  
+  filter(true_year>40) %>%  
+   filter(scen_ACD_year == min(scen_ACD_year, na.rm = TRUE)) %>%  
+    unique() %>% 
+  ungroup() %>%
+  select(index)
+
+problem_compositions <- scenarios %>% rbindlist() %>%  
+  filter(production_target == 0.5) %>%  
+  right_join(scenario_composition, relationship = "many-to-many") %>% 
+  right_join(spike_scenarios) %>%  
+  mutate(scen_ACD_year = scen_ACD_year/1000000)
 
 # --------  Convert ACD into changes in ACD per scenario ----------
 names(scenarios)
