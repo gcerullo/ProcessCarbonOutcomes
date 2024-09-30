@@ -276,7 +276,7 @@ L1_R <- NEWDAT %>%
     upr_ACD = ifelse(is.na(upr_ACD), max(upr_ACD, na.rm = TRUE), upr_ACD)
   )
 
-#get first 3yrs of 1L 
+#get first 30yrs of 1L 
 oncelogged <- L1_R %>% filter(habitat == "once-logged") %>% filter(true_age < 31)
 
 #get restored and once logged properly organised 
@@ -413,7 +413,7 @@ carbhabs <- deforested_df %>%
 #         P        1L                             2L        2L                                      2L
 
 #We also make this true for scenarios that go from 1L (at the beginning of the scenarios) -> 2L....
-#....which is operationalised by not allowing 1L-2L transitions for 15 years....see below
+#....which is operationalise by not allowing 1L-2L transitions for 15 years....see below
 
 #3. twice_logged_delays  - second rotation happens at varying intervals after the once-logging from 15-30 years, depending on the harvesting delay. 
 # this is important for scenarios that begin with once-logged forest (eg. mostly_1L and mostly_1L_deforested scenarios) 
@@ -565,8 +565,6 @@ p3<- ggplot(L1_L2_df , aes(x = functionalhabAge, y = ACD, color = functional_hab
 plot_grid(p1, p2,p3, col =2) # looks good (remember for 1L-2L, the once logged forest starts in functionhabAge = 0 at actually 15 yrs old)
 
 #------ combine all hab transitions ----------------
-#24.06.24!!!!####
-#COME BACK TO HERE ####
 carbhabs <- carbhabs %>%  
   rbind(P_2L_df) %>% 
   rbind(L2_2L_df) %>% 
@@ -577,8 +575,6 @@ carbhabs <- carbhabs %>%
 XX <- carbhabs %>% group_by(original_habitat, habitat) %>% count
 
 #-----add belowground carbon change----
-
-#NEED TO CORRECT TO INCLUDE UNCERTAINTY CALCULATIONS; ATM ONLY CALCULATING THE MAIN BIT (NO UPR OR LWR)
 
 #Assumptions made for incorporating belowground losses ####
 #1. Adding belowground carbon and necromass. 
