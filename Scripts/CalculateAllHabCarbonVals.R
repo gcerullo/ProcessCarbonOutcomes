@@ -293,12 +293,16 @@ P_1L_df <- OnceLogged %>% mutate(original_habitat = "primary",
 L1_1L_df <- OnceLogged %>% mutate(original_habitat = "once-logged", 
                                   habitat = "once-logged")
 
+#stays once-logged during delay years of restoration
+L1_1L_R_df <- L1_1L_df  %>% mutate(habitat ="restored")
+
 #organise P - R and 1L-R transitions 
 Restored <- L1_R %>% filter(functional_habitat == "restored") 
 P_R_df <- Restored %>% mutate(original_habitat = "primary", 
                               habitat = "restored")
 L1_R_df <- Restored %>% mutate(original_habitat = "once-logged", 
                               habitat = "restored")  
+
 
 #------------- get correct years -------------
 #make corrections so that we have values for all (and for the correct) years
@@ -387,6 +391,7 @@ carbhabs <- deforested_df %>%
   rbind(plant_df) %>%
   rbind(P_R_df) %>% 
   rbind(L1_R_df) %>%
+  rbind(L1_1L_R_df) %>% 
   rbind(P_1L_df) %>% 
   rbind(L1_1L_df)
 
