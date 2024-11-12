@@ -110,7 +110,7 @@ scenarios <- lapply(scenarios, adjust_scenarios)
 
 #!!!!
 #single scenario 
-test_scen <- adjust_scenarios(test_scen)
+#test_scen <- adjust_scenarios(test_scen)
 #!!!!
 
 #join carbon information to scenarios #### 
@@ -131,7 +131,7 @@ carbon_fun <- function(x){
 }
 #!!!!
 #single scenario 
-test_scen <- carbon_fun(test_scen)
+#test_scen <- carbon_fun(test_scen)
 #!!!!
 
 scenarios <- lapply(scenarios,carbon_fun)
@@ -269,7 +269,7 @@ scenarios <- lapply(scenarios, scenario_ACD_fun)
 #JJ <- scenarios[[11]]
 #test <- JJ %>%  group_by(index, true_year) %>% count()
 
-#CONTUNINEU FROM HERE ####
+#CONTUNINUE FROM HERE ####
 #---------- calculate carbon in starting landscape ------------
 
 #get carbon of starting landscape
