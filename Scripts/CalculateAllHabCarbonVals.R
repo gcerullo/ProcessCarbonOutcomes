@@ -127,7 +127,7 @@ round(apply(m1_mer$t, 2, quantile, c(0.025, 0.975)), 2)
 # NEWDAT <- rbind(NEWDATa, NEWDATb)
 # NEWDAT$ACD<-0
 
-# ------Modify philipson code to etend to 60 yr estimation --------
+# ------Modify philipson code to extend to 60 yr estimation --------
 #GC CODE; EXTEND above code TO PREDICT 60 YEARS INTO THE FUTURE 
 (NEWDATa<-expand.grid(YearsSinceLogging =seq(from=0, to=60, by=1), FACE=levels(Logged$FACE)[1]))
 (NEWDATb<-expand.grid(YearsSinceLogging =seq(from=0, to=60, by=1), FACE=levels(Logged$FACE)[2]))

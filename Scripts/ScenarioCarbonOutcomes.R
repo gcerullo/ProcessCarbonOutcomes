@@ -392,7 +392,7 @@ plot_data_df_05 %>%
 # ggsave("figures/occupancy_estimates.png", units="mm", 
 #        height=120*fig_scale, width=115*fig_scale)
 
-# #--------GC 04.06.24 TO SOLVE ------
+# #--------GC 04.06.24 TO SOLVE [fixed] ------
 # ##WHAT'S WITH THE 40 YR DIP IN fig above?
 # #something is happening at yr 45 for primary - twice-logged transitions, 
 # #for a single year, there is a big dip. 
