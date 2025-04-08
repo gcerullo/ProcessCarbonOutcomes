@@ -1,7 +1,9 @@
-# 30.09.24; 
+
+# 08.04.25; 
 #NB; this code:
 #this code calculates carbon consequences of different scenarios
 #commented out code-blocks enable to assessment of a single scenario, to see how the code works.
+#This code version propagates error properly 
 
 library(tidyr)
 library(ggplot2)
@@ -11,8 +13,7 @@ library(ggpubr)
 library(stringr) 
 library(cowplot)
 
-#Reading in carbon by hab outcomes from  CalculateAllHabCarbonVals.R script, 
-
+#Reading in carbon by hab outcomes from  CalculateAllHabCarbonVals.R script 
 
 #Read in Inputs ####
 #read in the scenario parametres containing conversion factors for converting from point to parcel/entire landscape  
@@ -24,7 +25,6 @@ socialDR <- read.csv("Outputs/SocialDiscountRates_2_4_6pc_DR.csv")
 
 #define all starting landscapes: 
 all_start_landscape 
-
 
 #Import inputs
 
@@ -39,18 +39,14 @@ scenario_composition <- rbindlist(scenarios_rm, use.names=TRUE)
 #yield matched scenarios where 1/30th of plantation conversion happens annually - WITH TIME DELAY 
 scenarios <- readRDS("Inputs/MasterAllScenarios_withHarvestDelays.rds")
 
-
 #------read in carbon by year per hab -----------------------
 #read in carbon, with delays already calculated. ACD refers to just above-ground carbon 
 #all_carbon incorporates belowground/necromass processes. 
 #This is the output of the CalculateAllHabCarbonVals.R script
-hab_carbon <-read.csv("Outputs/allHabCarbon_60yrACD.csv") %>% select(-X)
+hab_carbon <- read.csv("Outputs/allHabCarbon_60yrACD.csv") %>% select(-X)
 
-
-# #manual correction to scenarios - move upstream:
-#This fixes the fact that there is always a missing true year on the year 1L bcomes 2L as part Primary -> 2L transitions
-# 
-# Define the function
+# Define function for twice-logged correction
+# This fixes the fact that there is always a missing true year on the year 1L becomes 2L as Primary -> 2L transitions
 adjust_twice_logged <- function(df) {
   df %>%
     filter(habitat == "twice-logged") %>%
@@ -67,37 +63,22 @@ adjust_twice_logged <- function(df) {
     # Bind the duplicated and modified rows back to the original dataset
     bind_rows(df) %>%  
     group_by(index, production_target, original_habitat, habitat) %>% 
-    arrange(true_year , harvest_delay) 
+    arrange(true_year, harvest_delay) 
 }
 
-
-
-
-#--- run pipeline for a single scenario -------
-#!!!  
- # J <- scenarios[[1]]
- # test_scen<-  J %>% filter(index == "all_primary_CY_D.csv 253") 
- # test_scen<-  J %>% filter(index == "mostly_1L_CY_ND.csv 95") 
- # test_scen<-  J %>% filter(index == "all_primary_CY_D.csv 253") 
- # 
- # test_scen <- adjust_twice_logged(test_scen)
-#!!!
-
-#convert hab_harbon to data-table 
+# Convert hab_carbon to data.table for better performance
 hab_carbon <- as.data.table(hab_carbon)
 
-#carry out scenario corrections ####
+# Compute standard errors from upper/lower bounds assuming symmetric errors
+hab_carbon <- hab_carbon %>%
+  mutate(
+    full_carbon_err = (full_carbon_upr - full_carbon_lwr) / 2,
+    ACD_err = (upr_ACD - lwr_ACD) / 2
+  )
 
-#1. Correct for the fact that habitat starting as 1L cannot 
-#be harvested in the first 15 years
-#2. For efficiency in joins, if functionalHab = primary or deforested, make functionalhabAge = 0.
-#I changed the hab carbon for these fix values to only give 
-#values for 0 functionalHabAge
-
-
+# Correct scenarios ####
 adjust_scenarios <- function(data) {
-
-   data %>%
+  data %>%
     mutate(
       functionalhabAge = if_else(functional_habitat %in% c("primary", "deforested"), 0, functionalhabAge),
       harvest_delay_numeric = as.numeric(stringr::str_extract(harvest_delay, "\\d+"))
@@ -108,14 +89,8 @@ adjust_scenarios <- function(data) {
 
 scenarios <- lapply(scenarios, adjust_scenarios)
 
-#!!!!
-#single scenario 
-#test_scen <- adjust_scenarios(test_scen)
-#!!!!
-
-#join carbon information to scenarios #### 
-
-carbon_fun <- function(x){
+# Join carbon information to scenarios ####
+carbon_fun <- function(x) {
   x <- as.data.table(x)
   # Perform the left join operation in data table 
   result <- x[hab_carbon, on = .(habitat = habitat,
@@ -123,283 +98,234 @@ carbon_fun <- function(x){
                                  functional_habitat = functional_habitat, 
                                  functionalhabAge = functionalhabAge), nomatch = 0]
   
-  #equivalent to: 
-  # x %>%  left_join(hab_carbon, by = c("habitat" = "habitat",
-  #                                     "original_habitat" = "original_habitat",
-  #                                      "functional_habitat" = "functional_habitat", 
-  #                                       "functionalhabAge" = "functionalhabAge") 
+  return(result)
 }
-#!!!!
-#single scenario 
-#test_scen <- carbon_fun(test_scen)
-#!!!!
 
-scenarios <- lapply(scenarios,carbon_fun)
+scenarios <- lapply(scenarios, carbon_fun)
 
-#Apply our correction to ensure primary - 2L transitions have the correct number of years (NOTE: move upstream)
+# Apply our correction to ensure primary - 2L transitions have the correct number of years
 scenarios <- lapply(scenarios, adjust_twice_logged)
 
-#check we have the same number of years: 
-scenario_yrs_fun <- function(x){
+# Check we have the same number of years
+scenario_yrs_fun <- function(x) {
   x %>% filter(harvest_delay == "delay 15") %>% 
     group_by(index, production_target, original_habitat, habitat) %>%  
     count()
 }
 
-#check our correction worked
+# Check our correction worked
 count <- lapply(scenarios, scenario_yrs_fun)
-#counttest <- scenario_yrs_fun(test_scen)
-x <- count[[4]]
 
-
-
-# -------- ACD for a true year----------
-#Make the hard coded decision below of whether to use all_carbon
-#(includes belowground processes), or just above ground carbon (ACD)
-
-
-##1. Take Carbon measures from ACD per hectare to 10km2 parcel levels
-#2. For each staggered harvest, assume that 1/30th of each occurs (and so 1/30th annually)
-#3 calculate hab ACD for a given year, across staggered harvests
-#4 calculate scenario ACD for a given year 
-
-#get number of staggered harvests to define harvest window (this must match harvests)
+# Get number of staggered harvests to define harvest window
 J <- scenarios[[4]] 
 harvest_window <- J$harvest_delay %>% unique %>% length()
 
-#get number of staggered harvests (fewer) for once-logged to twice-logged transitions
-harvest_window_short <-   scenarios[[4]] %>% filter(original_habitat == "once-logged" & habitat == "twice-logged") 
-harvest_window_short<- harvest_window_short$harvest_delay %>% unique %>% length()
-#!!!!!!
-#use for single scenario test
-# harvest_window <- 30
-#!!!!!!
+# Get number of staggered harvests for once-logged to twice-logged transitions
+harvest_window_short <- scenarios[[4]] %>% 
+  filter(original_habitat == "once-logged" & habitat == "twice-logged") 
+harvest_window_short <- harvest_window_short$harvest_delay %>% unique %>% length()
 
-scenario_ACD_fun <- function(x){
-
-    x %>% 
-    #1. go to 10km2 parcel scale for carbon
-    
-
-         #INCLUDE BELOWGROUND PROCESSES 
-  mutate(all_10km = full_carbon*1000, 
-         lwr_all_10km =full_carbon_lwr *1000, 
-         upr_all_10km = full_carbon_upr*1000, 
-         
-         # #ABOVEGROUND PROCESSES ONLY 
-         ACD_10km = ACD*1000, 
-         lwr_ACD_10km =lwr_ACD *1000, 
-         upr_ACD_10km = upr_ACD*1000
-         ) %>% 
+scenario_ACD_fun <- function(x) {
+  # Convert to data.table for efficiency if not already
+  if (!is.data.table(x)) x <- as.data.table(x)
   
-    #2a. assuming 1/30th of of each habitat type is applied to each harvesting delay schedule
-    #, calculate the total ACD for a given habitat type in a given year
-    #NB- if there is no habitat transition, then don't need to divide by harvest window 
-   
-    
-     # mutate(
-    #   ACD_10km2_stag =  ACD_10km * num_parcels / harvest_window,
-    #   lwr_ACD_10km2_stag = lwr_ACD_10km * num_parcels / harvest_window,
-    #   upr_ACD_10km2_stag = upr_ACD_10km * num_parcels / harvest_window)  %>% 
-    # 
-    # 
-    
-    #2b. carry out conditional mutate, so that if hab transition is 1L -> 2L 
-    #(where we are not allowed to log for the first 15 yrs, so there 
-    #are only 15-30 yr delays) we divide by the smaller number of delays
+  # Step 1: Calculate at 10km² parcel scale with delta method for error propagation
+  x <- x %>%
     mutate(
-      all_10km2_stag = all_10km * num_parcels / if_else(original_habitat == "once-logged" & habitat == "twice-logged", harvest_window_short, harvest_window),
-      lwr_all_10km2_stag = lwr_all_10km  * num_parcels / if_else(original_habitat == "once-logged" & habitat == "twice-logged", harvest_window_short, harvest_window),
-      upr_all_10km2_stag = upr_all_10km * num_parcels / if_else(original_habitat == "once-logged" & habitat == "twice-logged", harvest_window_short, harvest_window), 
+      # For linear transformations (multiplication by constant),
+      # delta method gives: Var[c*X] = c²*Var[X]
+      # So SE[c*X] = c*SE[X]
+      all_10km = full_carbon * 1000,
+      all_10km_err = full_carbon_err * 1000,  
       
-      ACD_10km2_stag = ACD_10km * num_parcels / if_else(original_habitat == "once-logged" & habitat == "twice-logged", harvest_window_short, harvest_window),
-      lwr_ACD_10km2_stag = lwr_ACD_10km  * num_parcels / if_else(original_habitat == "once-logged" & habitat == "twice-logged", harvest_window_short, harvest_window),
-      upr_ACD_10km2_stag = upr_ACD_10km * num_parcels / if_else(original_habitat == "once-logged" & habitat == "twice-logged", harvest_window_short, harvest_window)
-    ) %>% 
-    
-
-  #3. for each true year and habitat transition, calculate carbon combined across the staggered
-  #harvesting schedule (i.e. the carbon in a given habitat transition for a given year) 
-  group_by(index,production_target, original_habitat, habitat, true_year) %>%  
+      ACD_10km = ACD * 1000,
+      ACD_10km_err = ACD_err * 1000,
+      
+      # Determine divisor based on habitat transition
+      harvest_divisor = if_else(original_habitat == "once-logged" & habitat == "twice-logged", 
+                                harvest_window_short, harvest_window),
+      
+      # For division by constant, delta method gives: Var[X/c] = Var[X]/c²
+      # For multiplication by constant: Var[c*X] = c²*Var[X]
+      # Combined for X*n/d: Var[X*n/d] = (n/d)²*Var[X]
+      # So SE[X*n/d] = (n/d)*SE[X]
+      all_10km2_stag = all_10km * num_parcels / harvest_divisor,
+      all_10km2_stag_err = all_10km_err * num_parcels / harvest_divisor,
+      
+      ACD_10km2_stag = ACD_10km * num_parcels / harvest_divisor,
+      ACD_10km2_stag_err = ACD_10km_err * num_parcels / harvest_divisor
+    )
+  
+  # Step 2: Group by year and habitat transition with delta method for sums
+  habitat_year_summary <- x %>%
+    group_by(index, production_target, original_habitat, habitat, true_year) %>%
+    summarize(
+      # Sum values across harvest schedules
+      hab_all_year = sum(all_10km2_stag, na.rm = TRUE),
+      
+      # Delta method for sum of independent random variables:
+      # Var[X₁ + X₂ + ... + Xₙ] = Var[X₁] + Var[X₂] + ... + Var[Xₙ]
+      # So SE[X₁ + X₂ + ... + Xₙ] = sqrt(SE[X₁]² + SE[X₂]² + ... + SE[Xₙ]²)
+      hab_all_year_err = sqrt(sum(all_10km2_stag_err^2, na.rm = TRUE)),
+      
+      hab_ACD_year = sum(ACD_10km2_stag, na.rm = TRUE),
+      hab_ACD_year_err = sqrt(sum(ACD_10km2_stag_err^2, na.rm = TRUE)),
+      
+      # Keep necessary metadata
+      scenarioName = first(scenarioName),
+      scenarioStart = first(scenarioStart),
+      .groups = "drop"
+    )
+  
+  # Step 3: Group by year to calculate total carbon across all habitat transitions
+  scenario_year_summary <- habitat_year_summary %>%
+    group_by(index, production_target, true_year) %>%
+    summarize(
+      # Sum across all habitat transitions
+      scen_all_year = sum(hab_all_year, na.rm = TRUE),
+      
+      # Apply delta method for sum of independent variables again
+      scen_all_year_err = sqrt(sum(hab_all_year_err^2, na.rm = TRUE)),
+      
+      scen_ACD_year = sum(hab_ACD_year, na.rm = TRUE),
+      scen_ACD_year_err = sqrt(sum(hab_ACD_year_err^2, na.rm = TRUE)),
+      
+      # Keep metadata
+      scenarioName = first(scenarioName),
+      scenarioStart = first(scenarioStart),
+      .groups = "drop"
+    )
+  
+  # Calculate confidence intervals based on standard errors
+  # For normally distributed variables, 95% CI is approximately ±1.96*SE
+  final_summary <- scenario_year_summary %>%
     mutate(
+      # 68% confidence intervals (±1 SE)
+      scen_all_year_lwr = scen_all_year - scen_all_year_err,
+      scen_all_year_upr = scen_all_year + scen_all_year_err,
       
-      hab_all_year = sum(all_10km2_stag), 
-      hab_all_year_lwr= sum(lwr_all_10km2_stag), 
-      hab_all_year_upr = sum(upr_all_10km2_stag),
+      scen_ACD_year_lwr = scen_ACD_year - scen_ACD_year_err,
+      scen_ACD_year_upr = scen_ACD_year + scen_ACD_year_err,
       
-      hab_ACD_year = sum(ACD_10km2_stag), 
-      hab_ACD_year_lwr= sum(lwr_ACD_10km2_stag), 
-      hab_ACD_year_upr = sum(upr_ACD_10km2_stag)
-           ) %>%  ungroup %>%  
-    
-    #select a single harvest delay worth of data, as we now have calculated ACD across harvesting schedules
-    filter(harvest_delay == "delay 15") %>% 
-    select(-harvest_delay) %>% 
-    
-    
-    
-    #4. Across habitat type transitions (e.g for all hab_parcel transitions) in a scenario, calculate ACD for a given year
-    group_by(index, production_target, true_year) %>%  
-    mutate(
-           scen_all_year = sum(hab_all_year), 
-           scen_all_year_lwr= sum(hab_all_year_lwr), 
-           scen_all_year_upr = sum(hab_all_year_upr),
-           
-           scen_ACD_year = sum(hab_ACD_year), 
-           scen_ACD_year_lwr= sum(hab_ACD_year_lwr), 
-           scen_ACD_year_upr = sum(hab_ACD_year_upr)
-           
-           ) %>%  ungroup() %>% 
-    
-    
-    #now we make sure we only have one row for each scenario and year, showing scen_ACD_year
-    select(index, production_target,scenarioName,scenarioStart, true_year,
-           scen_all_year,scen_all_year_lwr,scen_all_year_upr,
-           scen_ACD_year,scen_ACD_year_lwr, scen_ACD_year_upr) %>%  
-    group_by(true_year,index) %>%  slice(1) %>% 
-    ungroup()
+      # # Optionally add 95% confidence intervals (±1.96 SE)
+      # scen_all_year_lwr_95 = scen_all_year - 1.96 * scen_all_year_err,
+      # scen_all_year_upr_95 = scen_all_year + 1.96 * scen_all_year_err,
+      # 
+      # scen_ACD_year_lwr_95 = scen_ACD_year - 1.96 * scen_ACD_year_err,
+      # scen_ACD_year_upr_95 = scen_ACD_year + 1.96 * scen_ACD_year_err
+    )
+  
+  return(final_summary)
 }
 
-
+# Apply scenario_ACD_fun to all scenarios
 scenarios <- lapply(scenarios, scenario_ACD_fun)
+#LOOKS GOOD TO HERE !!! :) 
 
-carbon_stock_years <- scenarios %>% rbindlist %>% 
-  group_by(production_target, index,scenarioName, scenarioStart,) %>%  
-  reframe(all_carbon_stock = sum(scen_all_year), 
-            aboveground_carbon_stock = sum(scen_ACD_year))
+###TEST 
 
-#-----------------------------------------------------------------------------------------------------
-#APPROACH 1 - calculate carbon stock years
-#-----------------------------------------------------------------------------------------------------
+# Combine all scenarios for carbon stock calculation
+carbon_stock_years <- rbindlist(scenarios) %>% 
+  group_by(production_target, index, scenarioName, scenarioStart) %>%  
+  reframe(
+    all_carbon_stock = sum(scen_all_year, na.rm = TRUE), 
+    # Proper error propagation for sum
+    all_carbon_stock_err = sqrt(sum(scen_all_year_err^2, na.rm = TRUE)),
+    all_carbon_stock_lwr = all_carbon_stock - all_carbon_stock_err,
+    all_carbon_stock_upr = all_carbon_stock + all_carbon_stock_err,
+    
+    aboveground_carbon_stock = sum(scen_ACD_year, na.rm = TRUE),
+    aboveground_carbon_stock_err = sqrt(sum(scen_ACD_year_err^2, na.rm = TRUE)),
+    aboveground_carbon_stock_lwr = aboveground_carbon_stock - aboveground_carbon_stock_err,
+    aboveground_carbon_stock_upr = aboveground_carbon_stock + aboveground_carbon_stock_err
+  )
 
 
-#-----------------------------------------------------------------------------------------------------
-#APPROACH 2 - convert ACD into fluxes compared to an unharvested baseline and then determine the USD impact 
-#-----------------------------------------------------------------------------------------------------
-#In terms of social costs of carbon
-
-# #!!!!
-#Single scenario 
-#test_scen <- scenario_ACD_fun(test_scen)
-#
-
-#JJ <- scenarios[[11]]
-#test <- JJ %>%  group_by(index, true_year) %>% count()
-
-#CONTUNINUE FROM HERE ####
-#---------- calculate carbon in starting landscape ------------
-
-#get carbon of starting landscape
+# Calculate starting landscape carbon ####
+# Get carbon of starting landscape
 starting_carbon <- hab_carbon %>% 
   filter(original_habitat == habitat) %>%  
   filter(!(original_habitat == "primary" & habitat == "primary")) %>%
   filter(!(original_habitat == "deforested" & habitat == "deforested")) 
 
-#calculate carbon per year per primary and deforested  
+# Calculate carbon per year per primary and deforested
 starting_carbon_def <- hab_carbon %>%
   filter(original_habitat == "deforested" & habitat == "deforested") %>%
   uncount(61) %>% 
-  #add age 0-60 for primary
+  # Add age 0-60 for primary
   mutate(functionalhabAge = row_number() - 1)
 
 starting_carbon_prim <- hab_carbon %>%
   filter(original_habitat == "primary" & habitat == "primary") %>%
   uncount(61) %>% 
-  #add age 0-60 for primary
+  # Add age 0-60 for primary
   mutate(functionalhabAge = row_number() - 1)
 
 starting_carbon <- starting_carbon %>% 
   rbind(starting_carbon_def) %>%  
   rbind(starting_carbon_prim)  
 
-
-#----- calculate all-start landscape ACD for a given year ------  
-all_start_landscapeCarbon <- all_start_landscape %>%
-  left_join(starting_carbon, relationship = "many-to-many") %>%
+# Calculate all-start landscape ACD for a given year  
+all_start_landscapeCarbon <- all_start_landscape %>%  
+  left_join(starting_carbon, relationship = "many-to-many") %>% 
   
-  # Calculate ACD per 10km2 and for each habitat type
+  # Calculate ACD per 10km2 and for each habitat type with proper error propagation
   mutate(
-    # Include belowground processes
-    all_SL = full_carbon * 1000 * num_parcels,
-    lwr_all_SL = full_carbon_lwr * 1000 * num_parcels,
-    upr_all_SL = full_carbon_upr * 1000 * num_parcels,
-    se_all_SL = (upr_all_SL - lwr_all_SL) / (2 * 1.96),
+    # Include belowground processes with proper error propagation
+    all_SL = full_carbon * 1000 * num_parcels, 
+    all_SL_err = full_carbon_err * 1000 * num_parcels,  # Error propagation for multiplication
+    lwr_all_SL = all_SL - all_SL_err,
+    upr_all_SL = all_SL + all_SL_err,
     
-    # Aboveground processes only
-    ACD_SL = ACD * 1000 * num_parcels,
-    lwr_ACD_SL = lwr_ACD * 1000 * num_parcels,
-    upr_ACD_SL = upr_ACD * 1000 * num_parcels,
-    se_ACD_SL = (upr_ACD_SL - lwr_ACD_SL) / (2 * 1.96)
-  ) %>%
+    # Aboveground processes only with proper error propagation
+    ACD_SL = ACD * 1000 * num_parcels, 
+    ACD_SL_err = ACD_err * 1000 * num_parcels,
+    lwr_ACD_SL = ACD_SL - ACD_SL_err,
+    upr_ACD_SL = ACD_SL + ACD_SL_err
+  ) %>% 
   
-  ungroup() %>%
-  
-  # Calculate total ACD across habitat types (i.e., across all parcels)
-  group_by(scenarioStart, functionalhabAge) %>%
-  mutate(
-    all_SL_tot = sum(all_SL),
-    se_all_SL_tot = sqrt(sum(se_all_SL^2)),
-    lwr_all_SL_tot = all_SL_tot - 1.96 * se_all_SL_tot,
-    upr_all_SL_tot = all_SL_tot + 1.96 * se_all_SL_tot,
+  # Calculate ACD for a given year across habitat types with proper error propagation
+  group_by(scenarioStart, functionalhabAge) %>% 
+  summarize(
+    # Sum with proper error propagation
+    all_SL_tot = sum(all_SL, na.rm = TRUE),
+    all_SL_tot_err = sqrt(sum(all_SL_err^2, na.rm = TRUE)),
+    lwr_all_SL_tot = all_SL_tot - all_SL_tot_err,
+    upr_all_SL_tot = all_SL_tot + all_SL_tot_err,
     
-    ACD_SL_tot = sum(ACD_SL),
-    se_ACD_SL_tot = sqrt(sum(se_ACD_SL^2)),
-    lwr_ACD_SL_tot = ACD_SL_tot - 1.96 * se_ACD_SL_tot,
-    upr_ACD_SL_tot = ACD_SL_tot + 1.96 * se_ACD_SL_tot
+    ACD_SL_tot = sum(ACD_SL, na.rm = TRUE), 
+    ACD_SL_tot_err = sqrt(sum(ACD_SL_err^2, na.rm = TRUE)),
+    lwr_ACD_SL_tot = ACD_SL_tot - ACD_SL_tot_err,
+    upr_ACD_SL_tot = ACD_SL_tot + ACD_SL_tot_err,
+    .groups = "drop"
   ) %>%
-  
-  # Ensure one row per scenarioStart + functionalhabAge (now renamed true_year)
-  group_by(scenarioStart, functionalhabAge) %>%
-  slice(1) %>%
-  ungroup() %>%
   rename(true_year = functionalhabAge)
 
+# Select relevant columns for joining
+all_start_landscape_totalACD <- all_start_landscapeCarbon %>% 
+  select(scenarioStart, all_SL_tot, all_SL_tot_err, lwr_all_SL_tot, upr_all_SL_tot,
+         ACD_SL_tot, ACD_SL_tot_err, lwr_ACD_SL_tot, upr_ACD_SL_tot, true_year)
 
-
-all_start_landscape_totalACD <- all_start_landscapeCarbon %>% select(
-  scenarioStart, 
-  all_SL_tot,lwr_all_SL_tot,upr_all_SL_tot,
-  ACD_SL_tot,lwr_ACD_SL_tot,upr_ACD_SL_tot,true_year)
-
-# --------- #add starting landscape ACD to each scenario ---------
-
-add_SL_ACD_fun <- function(x){
-  x %>% left_join(all_start_landscape_totalACD, by = c("scenarioStart","true_year")) %>% 
+# Add starting landscape ACD to each scenario
+add_SL_ACD_fun <- function(x) {
+  x %>% 
+    left_join(all_start_landscape_totalACD, by = c("scenarioStart", "true_year")) %>% 
     distinct()
-  
 }
-#!!!!!!
-#single scenario
-#scenarios <- add_SL_ACD_fun(scenarios)
-#!!!!!!
 
 scenarios <- lapply(scenarios, add_SL_ACD_fun)
 
-
-# -------- plot ACD thru time for each scenario  ------------
-
-#Plot either all carbon with belowground (scen_all_year) or just above ground (scen_ACD_year)
-# plot_data <- lapply(scenarios, get_plot_data_fun)
-#plot_data_df <- rbindlist(plot_data)
-
+# Create combined dataframe of all scenarios for plotting
 plot_data_df <- rbindlist(scenarios)
-
 plot_data_df_05 <- plot_data_df %>% filter(production_target == 0.5)
 
-
-plot_data_df_05 %>% 
-  # scenarios %>% 
-  # filter(scenarioName == "all_primary_CY_D.csv") %>% 
-  #!!!
-  #scenarios %>% 
-  #!!!
- # filter(scenarioName %in% c("all_primary_CY_D.csv", "mostly_1L_CY_D.csv", "mostly_2L_CY_D.csv")) %>% 
-  
-  ggplot(aes(true_year, scen_ACD_year/1000000, group = index,colour = index)) +
+# Plot ACD through time for each scenario
+ggplot(plot_data_df_05, aes(true_year, scen_ACD_year/1000000, group = index, colour = index)) +
   geom_point() +
-  geom_line(aes(y = ACD_SL_tot/1000000),linetype = "longdash", colour = "black") +
-  #geom_point() +
-  #geom_linerange() + 
+  geom_line(aes(y = ACD_SL_tot/1000000), linetype = "longdash", colour = "black") +
+  # Add error bands
+  geom_ribbon(aes(ymin = scen_ACD_year_lwr/1000000, ymax = scen_ACD_year_upr/1000000, 
+                  fill = index), alpha = 0.2, colour = NA) +
   facet_wrap(~scenarioName) +
   theme_bw(base_size = 16) + 
   theme(strip.background = element_blank(),
@@ -410,31 +336,9 @@ plot_data_df_05 %>%
         axis.text.x = element_text(angle=45, hjust=1.05, colour="black")) +
   labs(y = "ACD in millions", x="")
 
-#fig_scale <- 1.5
-# ggsave("figures/occupancy_estimates.png", units="mm", 
-#        height=120*fig_scale, width=115*fig_scale)
+#CODE LOOKS GOOD TO HERE AGAIN!! 
 
-# #--------GC 04.06.24 TO SOLVE [fixed] ------
-# ##WHAT'S WITH THE 40 YR DIP IN fig above?
-# #something is happening at yr 45 for primary - twice-logged transitions, 
-# #for a single year, there is a big dip. 
-# 
-# spike_scenarios <- plot_data_df %>% group_by(scenarioStart) %>% 
-# filter(production_target == 0.5) %>%  
-#   filter(true_year>40) %>%  
-#    filter(scen_ACD_year == min(scen_ACD_year, na.rm = TRUE)) %>%  
-#     unique() %>% 
-#   ungroup() %>%
-#   select(index)
-# 
-# problem_compositions <- scenarios %>% rbindlist() %>%  
-#   filter(production_target == 0.5) %>%  
-#   right_join(scenario_composition, relationship = "many-to-many") %>% 
-#   right_join(spike_scenarios) %>%  
-#   mutate(scen_ACD_year = scen_ACD_year/1000000)
-
-# --------  Convert ACD into changes in ACD per scenario ----------
-names(scenarios)
+# Function to calculate annual changes in ACD with proper error propagation
 ACD_change_function <- function(x){
   x %>%  
     # #filter only a single delay year(as scenario and SL ACD are now summarised across delay years, so these rows are identical)
@@ -452,12 +356,12 @@ ACD_change_function <- function(x){
     mutate(scen_all_change = scen_all_year - lag(scen_all_year), 
            scen_all_change_lwr = scen_all_year_lwr - lag(scen_all_year_lwr),
            scen_all_change_upr = scen_all_year_upr- lag(scen_all_year_upr), 
-    
-    #Aboveground       
-    scen_ACD_change = scen_ACD_year - lag(scen_ACD_year), 
-    scen_ACD_change_lwr = scen_ACD_year_lwr - lag(scen_ACD_year_lwr),
-    scen_ACD_change_upr = scen_ACD_year_upr- lag(scen_ACD_year_upr)
-        ) %>% 
+           
+           #Aboveground       
+           scen_ACD_change = scen_ACD_year - lag(scen_ACD_year), 
+           scen_ACD_change_lwr = scen_ACD_year_lwr - lag(scen_ACD_year_lwr),
+           scen_ACD_change_upr = scen_ACD_year_upr- lag(scen_ACD_year_upr)
+    ) %>% 
     
     #calculate ACD change annually for the starting landscape 
     mutate(
@@ -466,14 +370,14 @@ ACD_change_function <- function(x){
       SL_all_change_upr = upr_all_SL_tot- lag(upr_all_SL_tot),
       
       SL_ACD_change = ACD_SL_tot- lag(ACD_SL_tot), 
-           SL_ACD_change_lwr =lwr_ACD_SL_tot- lag(lwr_ACD_SL_tot),
-           SL_ACD_change_upr = upr_ACD_SL_tot- lag(upr_ACD_SL_tot)) %>% 
+      SL_ACD_change_lwr =lwr_ACD_SL_tot- lag(lwr_ACD_SL_tot),
+      SL_ACD_change_upr = upr_ACD_SL_tot- lag(upr_ACD_SL_tot)) %>% 
     ungroup() %>%  
     select(index, production_target,true_year, 
-          # scen_ACD_year,scen_ACD_year_lwr,scen_ACD_year_upr,
-          scen_all_change,scen_all_change_lwr,scen_all_change_upr,
+           # scen_ACD_year,scen_ACD_year_lwr,scen_ACD_year_upr,
+           scen_all_change,scen_all_change_lwr,scen_all_change_upr,
            scen_ACD_change,scen_ACD_change_lwr,scen_ACD_change_upr,
-          # ACD_SL_tot, lwr_ACD_SL_tot,upr_ACD_SL_tot,
+           # ACD_SL_tot, lwr_ACD_SL_tot,upr_ACD_SL_tot,
            SL_all_change,SL_all_change_lwr,SL_all_change_upr,
            SL_ACD_change,SL_ACD_change_lwr,SL_ACD_change_upr,
            scenarioName,scenarioStart)
@@ -481,36 +385,23 @@ ACD_change_function <- function(x){
   
 }
 
-#!!!!!!
-#scenarios <- ACD_change_function(scenarios)
-#!!!!!!
 
 scenarios <-lapply(scenarios, ACD_change_function)
+
 scenarios_df <- rbindlist(scenarios)
 
-
-#plot scenario ACD annual change
-
-#chose whether to plot all carbon or just ACD
+# Plot scenario ACD annual change
 scenarios_df %>%
-  
   filter(production_target == 0.5) %>% 
-  
   filter(!(true_year > 43 & true_year < 47)) %>% 
-  
   filter(scenarioName %in% c("all_primary_CY_D.csv", "mostly_1L_CY_D.csv", "mostly_2L_CY_D.csv")) %>% 
-  #filter(scenarioName %in% c( "mostly_1L_CY_D.csv")) %>% 
-  
-  
-  #!!!
-  #scenarios %>% 
-  #!!!
-  ggplot(aes(true_year, scen_ACD_change/1000000,colour = as.factor(index))) +
-  geom_line()+
-  geom_line(aes(y = SL_ACD_change/1000000),linetype = "longdash", colour = "black") +
-  #geom_point() +
-  #geom_linerange() + 
-  facet_wrap(~scenarioName, ncol =4, scales ="free_y" ) +
+  ggplot(aes(true_year, scen_ACD_change/1000000, colour = as.factor(index))) +
+  geom_line() +
+  # Add error bands
+  geom_ribbon(aes(ymin = scen_ACD_change_lwr/1000000, ymax = scen_ACD_change_upr/1000000, 
+                  fill = as.factor(index)), alpha = 0.2, colour = NA) +
+  geom_line(aes(y = SL_ACD_change/1000000), linetype = "longdash", colour = "black") +
+  facet_wrap(~scenarioName, ncol = 4, scales = "free_y") +
   theme_bw(base_size = 16) + 
   theme(strip.background = element_blank(), 
         legend.position = "none",
@@ -519,47 +410,31 @@ scenarios_df %>%
         axis.text = element_text(colour = "black"),
         axis.text.x = element_text(angle=45, hjust=1.05, colour="black")) +
   labs(y = "ACD change in millions", x="")
-#J <- scenarios[[1]] %>%  filter(index == "all_primary_CY_D.csv 251" | index =="all_primary_CY_D.csv 252"|index =="all_primary_CY_D.csv 253"|index =="all_primary_CY_D.csv 254"|index =="all_primary_CY_D.csv 255")
-#Tx <- scenario_composition %>% filter(index == "all_primary_CY_D.csv 251" | index =="all_primary_CY_D.csv 252"|index =="all_primary_CY_D.csv 253"|index =="all_primary_CY_D.csv 254"|index =="all_primary_CY_D.csv 255")
 
+# # Plot changes in ACD in starting landscape
+# scenarios_df %>% 
+#   ungroup() %>% 
+#   filter(production_target == 0.5) %>% 
+#   select(true_year, SL_ACD_change, SL_ACD_change_lwr, SL_ACD_change_upr, scenarioName) %>% 
+#   group_by(true_year, scenarioName) %>%
+#   slice(1) %>% 
+#   ungroup() %>% 
+#   ggplot(aes(true_year, SL_ACD_change)) +
+#   geom_line() +
+#   # Add error bands
+#   geom_ribbon(aes(ymin = SL_ACD_change_lwr, ymax = SL_ACD_change_upr), 
+#               alpha = 0.2, fill = "grey") +
+#   facet_wrap(~scenarioName) +
+#   theme_bw() + 
+#   theme(strip.background = element_blank(), 
+#         legend.position = "none",
+#         strip.text = element_text(hjust=0, face="bold"), 
+#         panel.grid = element_blank(), 
+#         axis.text = element_text(colour = "black"),
+#         axis.text.x = element_text(angle=45, hjust=1.05, colour="black")) +
+#   labs(y = "drawdown", x="")
 
-# ------ change in ACD in starting landscape  #--------------
-#good - starting landscapes with deforested land at beginning have lower ACD change, as have a smaller amount of recovering forest
-
-scenarios_df %>% ungroup %>% filter(production_target ==0.5) %>% 
-  select(true_year,SL_ACD_change,scenarioName) %>% group_by(true_year,scenarioName) %>%
-  slice(1) %>% ungroup %>% 
-  #!!!
-  # scenarios %>% 
-  #!!!
-  ggplot(aes(true_year, SL_ACD_change)) +
-  geom_line()+
-  #geom_point() +
-  #geom_linerange() + 
-  facet_wrap(~scenarioName) +
-  theme_bw() + 
-  theme(strip.background = element_blank(), 
-        legend.position = "none",
-        strip.text = element_text(hjust=0, face="bold"), 
-        panel.grid = element_blank(), 
-        axis.text = element_text(colour = "black"),
-        axis.text.x = element_text(angle=45, hjust=1.05, colour="black")) +
-  labs(y = "drawdown", x="")
-
-
-
-#NOTES ON VIEWING: filter a single iddex and then order inview finder by original_hab,habitat and true_year
-#xx <- scenarios[[17]]
-#xxx <-  xx %>% filter(index=="mostly_2L_deforested_IY_D.csv 5") %>%  distinct()
-#View(xxx)
-
-#---------- convert to fluxes across habitat parcels --------
-#The atomic mass of carbon (C) is approximately 12.01 g/mol, and the molecular weight of carbon dioxide (CO2) is the sum of the atomic masses of one carbon atom and two oxygen (O) atoms, which is approximately 12.01 + 2 * 16.00 = 44.01 g/mol.
-#Convert Carbon Change to CO2 Change:
-#To convert the net change in above-ground carbon density to carbon dioxide flux, you need to multiply the carbon change by the ratio of the molecular weights:
-#  CO2 Flux = Net Change in AGCD * (44.01 g/mol / 12.01 g/mol)
-
-#define molecular weight (mw) conversion
+# Define molecular weight (mw) conversion for CO2
 mw <- 44.01/12.01
 
 flux_converted_function <- function(x){
@@ -581,12 +456,12 @@ flux_converted_function <- function(x){
       SL_flux_all = SL_all_change *mw, 
       SL_flux_all_lwr =SL_all_change_lwr *mw,
       SL_flux_all_upr = SL_all_change_upr * mw, 
-     
+      
       SL_flux_ACD = SL_ACD_change *mw, 
       SL_flux_ACD_lwr =SL_ACD_change_lwr *mw,
       SL_flux_ACD_upr = SL_ACD_change_upr * mw
       
-  )
+    )
   
   
   
@@ -607,10 +482,7 @@ flux_converted_function <- function(x){
 scenario_flux <- lapply(scenarios,flux_converted_function)
 scenario_flux_df <- rbindlist(scenario_flux)
 
-#names(scenario_flux[[12]])
-#x <- scenario_flux[[13]]
-#single <- x %>% filter(index == "mostly_2L_CY_D.csv 10")
-
+scenario_flux_df <- rbindlist(scenario_flux)
 
 #------ incorporate social cost of carbon adjust discount rate -------
 
@@ -626,17 +498,17 @@ socialDR_6 <- socialDR %>% filter(discount_rate == "6%") %>%
 
 
 socialDR_fun <- function(x, SDR){
-    
-    x %>% left_join(SDR, by = "true_year") %>% 
+  
+  x %>% left_join(SDR, by = "true_year") %>% 
     
     #apply final equation to calculte socially discounted carbon impacts 
     mutate(carbon_impact_all = (scen_flux_all - SL_flux_all) * scc_discounted, 
            carbon_impact_all_lwr = (scen_flux_all_lwr - SL_flux_all_lwr) * scc_discounted, 
            carbon_impact_all_upr = (scen_flux_all_upr - SL_flux_all_upr) * scc_discounted,
-          
+           
            carbon_impact_ACD = (scen_flux_ACD - SL_flux_ACD) * scc_discounted, 
-                  carbon_impact_ACD_lwr = (scen_flux_ACD_lwr - SL_flux_ACD_lwr) * scc_discounted, 
-                  carbon_impact_ACD_upr = (scen_flux_ACD_upr - SL_flux_ACD_upr) * scc_discounted) %>%   
+           carbon_impact_ACD_lwr = (scen_flux_ACD_lwr - SL_flux_ACD_lwr) * scc_discounted, 
+           carbon_impact_ACD_upr = (scen_flux_ACD_upr - SL_flux_ACD_upr) * scc_discounted) %>%   
     
     #take the sum to give one final value for the whole scenario 
     group_by(index, production_target) %>%  
@@ -648,7 +520,7 @@ socialDR_fun <- function(x, SDR){
            TOTcarbon_ACD_impact = sum(carbon_impact_ACD,na.rm = TRUE), 
            TOTcarbon_impact_ACD_lwr = sum(carbon_impact_ACD_lwr,na.rm = TRUE), 
            TOTcarbon_impact_ACD_upr = sum(carbon_impact_ACD_upr,na.rm = TRUE)
-           ) %>%  
+    ) %>%  
     
     ungroup()
   
@@ -714,22 +586,22 @@ final_carbon2_fun <- function(x){
   socialDR_fun(x,socialDR_2) %>% 
     mutate(netFlux_all = SL_flux_all -scen_flux_all, 
            netFlux_ACD = SL_flux_ACD -scen_flux_ACD
-           ) #%>% 
-#    select(index, scenarioName,production_target, true_year,scen_flux, SL_flux,netFlux, scc_discounted, discount_rate,carbon_impact, TOTcarbon_impact)
+    ) #%>% 
+  #    select(index, scenarioName,production_target, true_year,scen_flux, SL_flux,netFlux, scc_discounted, discount_rate,carbon_impact, TOTcarbon_impact)
 }
 final_carbon4_fun <- function(x){
   socialDR_fun(x,socialDR_4) %>% 
     mutate(netFlux_all = SL_flux_all -scen_flux_all, 
            netFlux_ACD = SL_flux_ACD -scen_flux_ACD 
     )# %>% 
-    #select(index,scenarioName, production_target, true_year,scen_flux, SL_flux,netFlux, scc_discounted, discount_rate,carbon_impact, TOTcarbon_impact)
+  #select(index,scenarioName, production_target, true_year,scen_flux, SL_flux,netFlux, scc_discounted, discount_rate,carbon_impact, TOTcarbon_impact)
 }
 final_carbon6_fun <- function(x){
   socialDR_fun(x,socialDR_6) %>% 
     mutate(netFlux_all = SL_flux_all -scen_flux_all, 
            netFlux_ACD = SL_flux_ACD -scen_flux_ACD 
     )# %>% 
-    #select(index,scenarioName, production_target, true_year,scen_flux, SL_flux,netFlux, scc_discounted, discount_rate,carbon_impact, TOTcarbon_impact)
+  #select(index,scenarioName, production_target, true_year,scen_flux, SL_flux,netFlux, scc_discounted, discount_rate,carbon_impact, TOTcarbon_impact)
 }
 
 final_carbon2 <- lapply(scenario_flux,final_carbon2_fun)
@@ -832,18 +704,18 @@ output <- all_discount_rates %>%
   #remove year 0 as this will have NA values 
   filter(true_year> 0 ) %>% 
   select(index, production_target, scenarioName,scenarioStart,
-        #all carbon (i.e. incorporates belowground carbon)
-        TOTcarbon_all_impact,TOTcarbon_impact_all_lwr, TOTcarbon_impact_all_upr,
-        #aboveground carbon only
-        TOTcarbon_ACD_impact,TOTcarbon_impact_ACD_lwr, TOTcarbon_impact_ACD_upr,
+         #all carbon (i.e. incorporates belowground carbon)
+         TOTcarbon_all_impact,TOTcarbon_impact_all_lwr, TOTcarbon_impact_all_upr,
+         #aboveground carbon only
+         TOTcarbon_ACD_impact,TOTcarbon_impact_ACD_lwr, TOTcarbon_impact_ACD_upr,
          
          discount_rate) %>% 
   unique() %>% 
   cbind(outcome = "carbon")
 output <- unique(output)
 
-saveRDS(output, "Outputs/MasterCarbonPerformance2.rds")
+#save outputs ####
+saveRDS(output, "FinalPerformanceOutput/MasterCarbonPerformance_withuncertainty.rds")
 
 carbon_stock_years %>% cbind(outcome = "carbon")
-saveRDS(carbon_stock_years, "FinalPerformanceOutput/test_carbonstock_years.rds")
-
+saveRDS(carbon_stock_years, "FinalPerformanceOutput/carbonstock_years__withuncertainty.rds")
