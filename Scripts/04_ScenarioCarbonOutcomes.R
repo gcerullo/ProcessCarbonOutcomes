@@ -2,7 +2,7 @@
 #NB; this code:
 #this code calculates carbon consequences of different scenarios
 #commented out code-blocks enable to assessment of a single scenario, to see how the code works.
-
+#this code is obselete (calculates error propagation incorrectly; and is superseded by ScenarioCarbonOUtcomes_propagating_uncertainty.R)
 library(tidyr)
 library(ggplot2)
 library(data.table)
