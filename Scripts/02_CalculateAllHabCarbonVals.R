@@ -4,9 +4,13 @@
 #Code notes:
 #Plantation ACD is calculate is from SSB inventory data 
 #Primary, 1L and R is from Philipson and uses edited code originally written by 
-#Philipson 2020; Science. (I adjust Philipson's code to allow estimates for 60 years (they
+#Philipson 2020; Science: https://github.com/PhilipsonChristopher/CarbonRecovery/blob/master/Fig1/Figure1Code.R
+
+
+#(I adjust Philipson's code to allow estimates for 60 years (they
 #estimate out to 30/35 years; I assume that slope and intercept of their models stay the same 
 #and that 1L and R values plateu once they reach primary forest values)
+
 #I estimate ACD in twice-logged forest, and use three 2L typologies 
 
 #This code also incorporates belowground carbon and necromass processes
@@ -31,9 +35,9 @@ library(cowplot)
 #define amount of ACD loss from second rotation (ACD loss from getting 31.2m3 of timber in second harvest)
 
 
-
-#RATIONALE - BEING USED for 2L -> 2L: assume forest that starts out as twice logged was logged fiften years 
+#RATIONALE - BEING USED for 2L -> 2L: assume forest that starts out as twice logged was logged fifteen years 
 #after first logging (e.g. first harvest = t= -15, second harvest t = 0; tracks reality)
+
 #1. For Chris Philipson's model of ACD recovery after once-logging,  it looks like the first harvesting rotation led to a decline of 155.9869 ACD_ha-1  (1 yrs after once-logged = 44.01312 +/- 31.20968), down  from ~200 ACD_ha-1 for primary forest, and removing 112.96 m3 (+/- 22.42) of timber in first rotation  
 #2 Thus 155.9869/112.96 =  1.380904 decline in ACD per m3 harvest
 #3. Again, from Philipson's models, once-logged forest has an ACD of 84.56991 (+/- 30.47371) after 15 years of recovery.  
@@ -108,15 +112,6 @@ m1 <- lmer(ACD~  YearsSinceLogging  * FACE + (1|Plot)  + (1|LoggingMethod:Coupe)
 round(fixef(m1),1) 
 m1_mer <- bootMer(m1, nsim=1000, FUN=fixef, ncpus=8)
 round(apply(m1_mer$t, 2, quantile, c(0.025, 0.975)), 2)
-
-
-#  Variance attributable to plot size
-#  adding a random effect for each dataset accounts for variance attributable to plot size
-#  adding '+(1| Dataset)' to FullModel above does not alter the conclusions from the model (recovery slope is the same)
-#  m1_b <- lmer(ACD ~  YearsSinceLogging  * FACE + (1|Plot)  + (1|LoggingMethod:Coupe) +(1| Dataset), data=Logged , na.action=na.fail) 
-#  summary(m1_b)
-#  summary(m1)
-#  dotplot(ranef(m1_b, condVar=T))$Dataset
 
 
 
@@ -198,7 +193,6 @@ levels(Logged$FACE)
 #   theme(axis.text = element_text(size = 14, colour = "black"))+labs(title="")+
 #   scale_color_manual(values=c("blue", "red"))+ 
 #   theme(legend.position = "none")
-
 
 
 ## Unlogged forest for comparison
@@ -418,7 +412,7 @@ carbhabs <- deforested_df %>%
 #         P        1L                             2L        2L                                      2L
 
 #We also make this true for scenarios that go from 1L (at the beginning of the scenarios) -> 2L....
-#....which is operationalise by not allowing 1L-2L transitions for 15 years....see below
+#....which is operationalised by not allowing 1L-2L transitions for 15 years....see below
 
 #3. twice_logged_delays  - second rotation happens at varying intervals after the once-logging from 15-30 years, depending on the harvesting delay. 
 # this is important for scenarios that begin with once-logged forest (eg. mostly_1L and mostly_1L_deforested scenarios) 
@@ -577,7 +571,7 @@ carbhabs <- carbhabs %>%
 
 
 #check correct number of rows for each hab transitions 
-XX <- carbhabs %>% group_by(original_habitat, habitat) %>% count
+carb_check <- carbhabs %>% group_by(original_habitat, habitat) %>% count
 
 #-----add belowground carbon change----
 
@@ -596,9 +590,6 @@ XX <- carbhabs %>% group_by(original_habitat, habitat) %>% count
 #ACDforest + BCforest(t > 10) = ACDforest_t + (ACDforest_t * 0.31)
 
 
-# #to test function below and see what's happening for replicatability 
-# replica <- allHabCarbon_60yrACD_withDelays %>%  filter(harvest_delay == 15)
-# x <- replica
 
 belowground_fun <- function(x) {
   

@@ -1,6 +1,6 @@
 #09.06.24
-#this code genereates estimates of the social cost of carbon through time, which I can subsequently use 
-# to calculate carbon impact of scenarios by using discounted social cost of carbon values. 
+#this code generates estimates of the social cost of carbon through time, which I  subsequently use 
+# to calculate the financial carbon impact of scenarios by using discounted social cost of carbon values. 
 
 library(tidyverse)
 library(magrittr)

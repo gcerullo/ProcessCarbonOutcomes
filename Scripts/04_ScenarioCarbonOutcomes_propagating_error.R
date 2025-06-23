@@ -106,7 +106,7 @@ scenarios <- lapply(scenarios, carbon_fun)
 # Apply our correction to ensure primary - 2L transitions have the correct number of years
 scenarios <- lapply(scenarios, adjust_twice_logged)
 
-# Check we have the same number of years
+# Check we have the same number of years (not allowed to harvest in first 15 yrs)
 scenario_yrs_fun <- function(x) {
   x %>% filter(harvest_delay == "delay 15") %>% 
     group_by(index, production_target, original_habitat, habitat) %>%  
@@ -220,9 +220,8 @@ scenario_ACD_fun <- function(x) {
 
 # Apply scenario_ACD_fun to all scenarios
 scenarios <- lapply(scenarios, scenario_ACD_fun)
-#LOOKS GOOD TO HERE !!! :) 
 
-###TEST 
+###Determine carbon stock years -----------------------------------------
 
 # Combine all scenarios for carbon stock calculation
 carbon_stock_years <- rbindlist(scenarios) %>% 
@@ -269,9 +268,9 @@ starting_carbon <- starting_carbon %>%
 all_start_landscapeCarbon <- all_start_landscape %>%  
   left_join(starting_carbon, relationship = "many-to-many") %>% 
   
-  # Calculate ACD per 10km2 and for each habitat type with proper error propagation
+  # Calculate ACD per 10km2 and for each habitat type with  error propagation
   mutate(
-    # Include belowground processes with proper error propagation
+    # Include belowground processes with  error propagation
     all_SL = full_carbon * 1000 * num_parcels, 
     all_SL_err = full_carbon_err * 1000 * num_parcels,  # Error propagation for multiplication
     lwr_all_SL = all_SL - all_SL_err,
@@ -336,18 +335,9 @@ ggplot(plot_data_df_05, aes(true_year, scen_ACD_year/1000000, group = index, col
         axis.text.x = element_text(angle=45, hjust=1.05, colour="black")) +
   labs(y = "ACD in millions", x="")
 
-#CODE LOOKS GOOD TO HERE AGAIN!! 
-
 # Function to calculate annual changes in ACD with proper error propagation
 ACD_change_function <- function(x){
   x %>%  
-    # #filter only a single delay year(as scenario and SL ACD are now summarised across delay years, so these rows are identical)
-    # select(index,production_target,true_year, original_habitat, habitat, scen_ACD_year,scen_ACD_year_lwr,scen_ACD_year_upr,
-    #        ACD_SL_tot,lwr_ACD_SL_tot,upr_ACD_SL_tot,scenarioName) %>% 
-    # group_by(index, production_target, true_year) %>% 
-    # slice(1) %>%  
-    # ungroup %>% 
-    
     #calculate change in ACD annually for the scenario landscape
     group_by(index, production_target) %>%  
     arrange(true_year, by_group = TRUE) %>% 
@@ -384,7 +374,6 @@ ACD_change_function <- function(x){
   
   
 }
-
 
 scenarios <-lapply(scenarios, ACD_change_function)
 
@@ -467,7 +456,7 @@ flux_converted_function <- function(x){
   
 }
 
-#!!!!
+#!!!! This allows running a short test for a single scenario 
 #Single scenario test 
 # scenario_flux <- flux_converted_function(scenarios)
 # flux_per_scenario_and_SL <- scenario_flux %>%
@@ -612,10 +601,9 @@ final_carbon2 <- rbindlist(final_carbon2)
 final_carbon4 <- rbindlist(final_carbon4) 
 final_carbon6 <- rbindlist(final_carbon6)
 final_carbon_comb <- final_carbon2 %>%  rbind(final_carbon4) %>% rbind(final_carbon6)
-# Plot netFlux vs true_year for different discount rates
-# Define a color palette for the discount rates
 
 # Plot netFlux vs true_year for different discount rates
+
 
 # Plot carbon_impact vs true_year for different discount rates
 carbonImpact <- final_carbon_comb %>% drop_na %>%  
