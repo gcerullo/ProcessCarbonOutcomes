@@ -42,6 +42,7 @@ SSB <- SSB %>% mutate(wood_density = case_when(
 
 #CHAVE AGBest = 0.0673 x (Wood density x diametre^2 x height)^0.976 - tree level biomass
 
+#Come back and change this equations!!!! 1/10/2025
 SSB <- SSB %>% 
   #biomass per tree
   mutate(tree_biomass = 0.0673*(wood_density*dbh^2* height)^0.976) %>% 
@@ -65,106 +66,150 @@ sum(num_trees_EC$"Area..ha..")  #2879.25+  6201.2
 sum(num_trees_EC$"live_trees_ha") #295275
 
 #determine albizia best-fitting model ####
+# 
+# #BAYES FRAMEWORK
+# # subset species
+# AL_filtered <- SSB %>%
+#   filter(Species == "AF", YEAR < 13)
+# 
+# EC_filtered <- SSB %>%
+#   filter(Species == "EP", YEAR < 13, !is.na(ACD_Mg_ha))
+# 
+# # ---- Example 1: linear model ----
+# fit_lm <- brm(
+#   ACD_Mg_ha ~ YEAR,
+#   data = AL_filtered,
+#   family = gaussian(),
+#   chains = 4, cores = 4, iter = 2000
+# )
+# 
+# # ---- Example 2: spline model (Bayesian GAM) ----
+# fit_spline <- brm(
+#   ACD_Mg_ha ~ s(YEAR),
+#   data = EC_filtered,
+#   family = gaussian(),
+#   chains = 4, cores = 4, iter = 4000
+# )
+# 
+# # ---- Predictions with uncertainty ----
+# newdat <- data.frame(YEAR = seq(0, 13, length.out = 100))
+# 
+# pred_spline <- posterior_epred(fit_spline, newdata = newdat) # posterior draws
+# pred_spline_mean <- apply(pred_spline, 2, mean)
+# pred_spline_ci <- apply(pred_spline, 2, quantile, probs = c(0.025, 0.975))
+# 
+# plot_df <- cbind(newdat, 
+#                  mean = pred_spline_mean,
+#                  lwr = pred_spline_ci[1,],
+#                  upr = pred_spline_ci[2,])
+# 
+# ggplot(plot_df, aes(x = YEAR, y = mean)) +
+#   geom_ribbon(aes(ymin = lwr, ymax = upr), fill = "grey80", alpha = 0.4) +
+#   geom_line(color = "black") +
+#   geom_point(data = EC_filtered, aes(x = YEAR, y = ACD_Mg_ha), alpha = 0.2) +
+#   labs(x = "Plantation age", 
+#        y = expression("Aboveground Carbon Density (Mg ha"^-1*")")) +
+#   theme_pubr(base_size = 16)
 
-
-# Fit the lm model
-
-AL_filtered <- SSB %>% filter(Species == "AF") %>% filter(YEAR <13)
-model_lm <- lm(ACD_Mg_ha ~ YEAR, data = AL_filtered)
-predictions_lm <- predict(model_lm)
-AL_filtered %>% select(Block.No) %>% unique() %>% count()
-
-# Fit the loess model
-model_loess <- loess(ACD_Mg_ha ~ YEAR, data = AL_filtered)
-predictions_loess <- predict(model_loess)
-
-# Fit the spline model
-model_spline <- gam(ACD_Mg_ha ~ s(YEAR), data = AL_filtered)
-predictions_spline <- predict(model_spline)
-
-# Calculate MSE for lm, loess, and spline
-mse_lm <- mean((AL_filtered$ACD_Mg_ha %>% na.omit - predictions_lm)^2)
-mse_loess <- mean((AL_filtered$ACD_Mg_ha %>% na.omit - predictions_loess)^2)
-mse_spline <- mean((AL_filtered$ACD_Mg_ha %>% na.omit - predictions_spline)^2)
-
-# Compare the MSE values
-lowest_mse <- min(mse_lm, mse_loess, mse_spline)
-best_model <- switch(match(lowest_mse, c(mse_lm, mse_loess, mse_spline)), "lm", "loess", "spline")
-
-# Print the MSE values and the best model   #LOESS IS BEST 
-cat("MSE (lm):", mse_lm, "\n")
-cat("MSE (loess):", mse_loess, "\n")
-cat("MSE (spline):", mse_spline, "\n")
-cat("Best Model:", best_model, "\n")
-cat("Lowest MSE:", lowest_mse, "\n")
-
-# determine eucalyptus best-fitting model ####
-
-# Fit the lm model
-EC_filtered <- SSB %>% filter(Species == "EP") %>% filter(YEAR <13) %>% filter(!is.na(ACD_Mg_ha))
-model_lm <- lm(ACD_Mg_ha ~ YEAR, data = EC_filtered)
-predictions_lm <- predict(model_lm)
-
-# Fit the loess model
-model_loess <- loess(ACD_Mg_ha ~ YEAR, data = EC_filtered)
-predictions_loess <- predict(model_loess)
-
-# Fit the spline model
-model_spline <- gam(ACD_Mg_ha ~ s(YEAR), data = EC_filtered)
-predictions_spline <- predict(model_spline)
-confidence_interval <- predict(model_spline, se.fit = TRUE)
-upper_bound <- predictions_spline + 1.96 * confidence_interval$se.fit
-lower_bound <- predictions_spline - 1.96 * confidence_interval$se.fit
-
-
-# Calculate MSE for lm, loess, and spline
-mse_lm <- mean((EC_filtered$ACD_Mg_ha %>% na.omit() - predictions_lm)^2)
-mse_loess <- mean((EC_filtered$ACD_Mg_ha %>% na.omit() - predictions_loess)^2)
-mse_spline <- mean((EC_filtered$ACD_Mg_ha %>% na.omit - predictions_spline)^2)
-
-# Compare the MSE values
-lowest_mse <- min(mse_lm, mse_loess, mse_spline)
-best_model <- switch(match(lowest_mse, c(mse_lm, mse_loess, mse_spline)), "lm", "loess", "spline")
-
-# Print the MSE values and the best model   #LOESS IS BEST 
-cat("MSE (lm):", mse_lm, "\n")
-cat("MSE (loess):", mse_loess, "\n")
-cat("MSE (spline):", mse_spline, "\n")
-cat("Best Model:", best_model, "\n")
-cat("Lowest MSE:", lowest_mse, "\n")
-
-
-#Plot data ####
-
-#automatically plots 95% confidence intervals 
-sample_coverage <- AL_filtered %>% rbind(EC_filtered) %>% rename(area = "Area..ha..")
-sample_coverage %>% summarise(meanArea = mean(area), 
-                              sd(area))
-
-names(sample_coverage)
-ec <- EC_filtered %>% 
-  ggplot(aes(x = YEAR, y = ACD_Mg_ha)) +
-  geom_point(alpha = 0.1) +
-  geom_smooth(method = "gam", formula = y ~ s(x), colour = "black") +
-  geom_ribbon(aes(ymin = lower_bound, ymax = upper_bound), alpha = 0.3, fill = "grey80") +
-  labs(x = "Plantation age", y = "Aboveground Carbon Density (Mg ha\u207B\u00B9)") +
-  ggtitle("Eucalyptus pellita") +
-  theme_pubr(base_size = 16)
-
-
-
-
-#albizia (loess)
-al <- AL_filtered %>% 
-  filter(YEAR < 13.5) %>% 
-  ggplot(aes(x = YEAR, y = ACD_Mg_ha)) +
-  geom_point(alpha = 0.1) +
-  geom_smooth(method = "loess", colour = "black") +
-  labs(x = "Plantation age", y = "Aboveground Carbon Density (Mg ha\u207B\u00B9)") +
-  ggtitle("  Albizia falcataria")+
-  theme_pubr(base_size =16)
-
-plant_figures <- cowplot::plot_grid(ec,al)
+#
+# # Fit the lm model
+#
+# AL_filtered <- SSB %>% filter(Species == "AF") %>% filter(YEAR <13)
+# model_lm <- lm(ACD_Mg_ha ~ YEAR, data = AL_filtered)
+# predictions_lm <- predict(model_lm)
+# AL_filtered %>% select(Block.No) %>% unique() %>% count()
+#
+# # Fit the loess model
+# model_loess <- loess(ACD_Mg_ha ~ YEAR, data = AL_filtered)
+# predictions_loess <- predict(model_loess)
+#
+# # Fit the spline model
+# model_spline <- gam(ACD_Mg_ha ~ s(YEAR), data = AL_filtered)
+# predictions_spline <- predict(model_spline)
+#
+# # Calculate MSE for lm, loess, and spline
+# mse_lm <- mean((AL_filtered$ACD_Mg_ha %>% na.omit - predictions_lm)^2)
+# mse_loess <- mean((AL_filtered$ACD_Mg_ha %>% na.omit - predictions_loess)^2)
+# mse_spline <- mean((AL_filtered$ACD_Mg_ha %>% na.omit - predictions_spline)^2)
+#
+# # Compare the MSE values
+# lowest_mse <- min(mse_lm, mse_loess, mse_spline)
+# best_model <- switch(match(lowest_mse, c(mse_lm, mse_loess, mse_spline)), "lm", "loess", "spline")
+#
+# # Print the MSE values and the best model   #LOESS IS BEST
+# cat("MSE (lm):", mse_lm, "\n")
+# cat("MSE (loess):", mse_loess, "\n")
+# cat("MSE (spline):", mse_spline, "\n")
+# cat("Best Model:", best_model, "\n")
+# cat("Lowest MSE:", lowest_mse, "\n")
+#
+# # determine eucalyptus best-fitting model ####
+#
+# # Fit the lm model
+# EC_filtered <- SSB %>% filter(Species == "EP") %>% filter(YEAR <13) %>% filter(!is.na(ACD_Mg_ha))
+# model_lm <- lm(ACD_Mg_ha ~ YEAR, data = EC_filtered)
+# predictions_lm <- predict(model_lm)
+#
+# # Fit the loess model
+# model_loess <- loess(ACD_Mg_ha ~ YEAR, data = EC_filtered)
+# predictions_loess <- predict(model_loess)
+#
+# # Fit the spline model
+# model_spline <- gam(ACD_Mg_ha ~ s(YEAR), data = EC_filtered)
+# predictions_spline <- predict(model_spline)
+# confidence_interval <- predict(model_spline, se.fit = TRUE)
+# upper_bound <- predictions_spline + 1.96 * confidence_interval$se.fit
+# lower_bound <- predictions_spline - 1.96 * confidence_interval$se.fit
+#
+#
+# # Calculate MSE for lm, loess, and spline
+# mse_lm <- mean((EC_filtered$ACD_Mg_ha %>% na.omit() - predictions_lm)^2)
+# mse_loess <- mean((EC_filtered$ACD_Mg_ha %>% na.omit() - predictions_loess)^2)
+# mse_spline <- mean((EC_filtered$ACD_Mg_ha %>% na.omit - predictions_spline)^2)
+#
+# # Compare the MSE values
+# lowest_mse <- min(mse_lm, mse_loess, mse_spline)
+# best_model <- switch(match(lowest_mse, c(mse_lm, mse_loess, mse_spline)), "lm", "loess", "spline")
+#
+# # Print the MSE values and the best model   #LOESS IS BEST
+# cat("MSE (lm):", mse_lm, "\n")
+# cat("MSE (loess):", mse_loess, "\n")
+# cat("MSE (spline):", mse_spline, "\n")
+# cat("Best Model:", best_model, "\n")
+# cat("Lowest MSE:", lowest_mse, "\n")
+#
+#
+# #Plot data ####
+#
+# #automatically plots 95% confidence intervals
+# sample_coverage <- AL_filtered %>% rbind(EC_filtered) %>% rename(area = "Area..ha..")
+# sample_coverage %>% summarise(meanArea = mean(area),
+#                               sd(area))
+#
+# names(sample_coverage)
+# ec <- EC_filtered %>%
+#   ggplot(aes(x = YEAR, y = ACD_Mg_ha)) +
+#   geom_point(alpha = 0.1) +
+#   geom_smooth(method = "gam", formula = y ~ s(x), colour = "black") +
+#   geom_ribbon(aes(ymin = lower_bound, ymax = upper_bound), alpha = 0.3, fill = "grey80") +
+#   labs(x = "Plantation age", y = "Aboveground Carbon Density (Mg ha\u207B\u00B9)") +
+#   ggtitle("Eucalyptus pellita") +
+#   theme_pubr(base_size = 16)
+#
+#
+#
+#
+# #albizia (loess)
+# al <- AL_filtered %>%
+#   filter(YEAR < 13.5) %>%
+#   ggplot(aes(x = YEAR, y = ACD_Mg_ha)) +
+#   geom_point(alpha = 0.1) +
+#   geom_smooth(method = "loess", colour = "black") +
+#   labs(x = "Plantation age", y = "Aboveground Carbon Density (Mg ha\u207B\u00B9)") +
+#   ggtitle("  Albizia falcataria")+
+#   theme_pubr(base_size =16)
+#
+# plant_figures <- cowplot::plot_grid(ec,al)
 
 
 #----export figures ------
@@ -175,9 +220,9 @@ path = "Figures/"
 width <- 8.27
 height <- 11.69
 
-ggsave(plant_figures, 
+ggsave(plant_figures,
        filename = paste0(path, "//PlantationACD.pdf"),
-       width =  width, #in pixels 
+       width =  width, #in pixels
        height = height/2,
        units = "in")
 
