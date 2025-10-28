@@ -34,7 +34,6 @@ library(cowplot)
 #DEFINE KEY PARAMS ####
 #define amount of ACD loss from second rotation (ACD loss from getting 31.2m3 of timber in second harvest)
 
-
 #RATIONALE - BEING USED for 2L -> 2L: assume forest that starts out as twice logged was logged fifteen years 
 #after first logging (e.g. first harvest = t= -15, second harvest t = 0; tracks reality)
 
@@ -128,7 +127,6 @@ round(apply(m1_mer$t, 2, quantile, c(0.025, 0.975)), 2)
 (NEWDATb<-expand.grid(YearsSinceLogging =seq(from=0, to=60, by=1), FACE=levels(Logged$FACE)[2]))
 NEWDAT <- rbind(NEWDATa, NEWDATb)
 NEWDAT$ACD<-0
-
 
 mm <- model.matrix(terms(m1),NEWDAT)
 length(fixef(m1))
@@ -684,7 +682,6 @@ allHabCarbon_60yrACD %>%
   facet_wrap(~original_habitat + habitat, scales = "free_y") +
   labs(x = "True Year", y = "Full Carbon") +
   theme_minimal()
-
 
 
 #write Master output #####
