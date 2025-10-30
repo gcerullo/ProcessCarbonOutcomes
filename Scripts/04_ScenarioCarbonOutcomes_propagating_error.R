@@ -39,6 +39,9 @@ scenario_composition <- rbindlist(scenarios_rm, use.names=TRUE)
 #yield matched scenarios where 1/30th of plantation conversion happens annually - WITH TIME DELAY 
 scenarios <- readRDS("Inputs/MasterAllScenarios_withHarvestDelays.rds")
 
+x <- scenarios[[5]]
+ y <-x %>% filter(index == "all_primary_CY_D.csv 35" & harvest_delay =="delay 1")
+exampleof1lto2l <- x %>%  filter(index == "mostly_1L_deforested_CY_D.csv 160")
 #------read in carbon by year per hab -----------------------
 #read in carbon, with delays already calculated. ACD refers to just above-ground carbon 
 #all_carbon incorporates belowground/necromass processes. 
