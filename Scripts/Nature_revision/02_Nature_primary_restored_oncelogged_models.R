@@ -34,24 +34,6 @@ library(bayesplot)
 library(tidybayes)
 set.seed(123)
 
-# ---------- PARAMETERS (PROBS NEED TO CHANGE) ----------
-#DEFINE KEY PARAMS ####
-#define amount of ACD loss from second rotation (ACD loss from getting 31.2m3 of timber in second harvest)
-
-#RATIONALE - BEING USED for 2L -> 2L: assume forest that starts out as twice logged was logged fifteen years 
-#after first logging (e.g. first harvest = t= -15, second harvest t = 0; tracks reality)
-
-#1. For Chris Philipson's model of ACD recovery after once-logging,  it looks like the first harvesting rotation led to a decline of 155.9869 ACD_ha-1  (1 yrs after once-logged = 44.01312 +/- 31.20968), down  from ~200 ACD_ha-1 for primary forest, and removing 112.96 m3 (+/- 22.42) of timber in first rotation  
-#2 Thus 155.9869/112.96 =  1.380904 decline in ACD per m3 harvest
-#3. Again, from Philipson's models, once-logged forest has an ACD of 84.56991 (+/- 30.47371) after 15 years of recovery.  
-#4. Twice-logging removes 31.24 m3 of timber (+/- 10.4) 
-#5. I assume the same ACD loss per m3 harvested as once-logged 
-#6. Thus 31.24 * 1.380904 = 43.13944 = ACD loss from second harvest
-#7. Thus given a 15yr once-logged ACD before logging, then:
-#      84.56991 - 43.94059 = 40.62932 in twice-logged in yr 0   
-harvest2ndACD_loss <- 43.13944
-ACD_2L_yr0_30yrAfter1L_30yrAfter1L <- 84.88416
-ACD_2L_starting2L_15yrAfter1L <- 40.62932
 
 # ---------- READ INPUTS ----------
 hab_by_year <- read.csv("Inputs/HabByYears.csv", strip.white = TRUE) %>%
@@ -75,6 +57,7 @@ UnLogged <- subset(data_phil, Forest == "UnLogged")
 Logged$FACE <- factor(Logged$FACE)
 UnLogged$MeasureTime <- factor(UnLogged$MeasureTime)
 unique(UnLogged$MeasureTime)
+
 # ---------- FIT BRMS MODELS ----------
 # 1) Main model: ACD ~ YearsSinceLogging * FACE + (1|Plot) + (1|LoggingMethod:Coupe)
 # Use weakly informative priors

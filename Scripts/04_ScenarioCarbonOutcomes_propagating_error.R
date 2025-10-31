@@ -30,7 +30,6 @@ all_start_landscape
 
 #Read in Data ####
 #----------------read in scenarios -------------------------------
-
 #yield matched scenarios where 1/30th of plantation conversion happens annually - with no time delay
 #temporarily read in to get composition
 scenarios_rm <- readRDS("Inputs/MasterAllScenarios.rds")
