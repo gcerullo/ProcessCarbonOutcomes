@@ -93,18 +93,10 @@ all_data <- bind_rows(
   Primary
 )
 
-# ============================================================
-# 1) COMBINE DATA
-# ============================================================
 
-all_data <- bind_rows(
-  plantation,
-  Logged,
-  Primary
-)
 
 # ============================================================
-# 1) PREP DATA
+# PREP DATA
 # ============================================================
 all_data <- bind_rows(
   plantation,
@@ -123,7 +115,7 @@ all_data <- all_data %>%
 
 
 # ============================================================
-# 2) MODEL
+#  MODEL
 # ============================================================
 
 joint_model <- brm(
@@ -234,71 +226,17 @@ joint_model <- brm(
   seed = 123
 )
 
-#this above is mostly good; but overestimating restored and underestimating 1l
-#instead, test gaussian, some pooling just for logged sites, try constant sigma for 
-#https://chatgpt.com/c/699dbdf5-0fdc-8332-b3ab-869644c26cb9
-
-# 
-# priors <- c(
-#   prior(normal(150, 50), class = "Intercept"),
-#   prior(normal(2, 1), class = "b", coef = "time_nonprimary"),
-#   prior(student_t(3, 0, 30), class = "sd"),
-#   prior(lkj(2), class = "cor"),
-#   prior(student_t(3, 0, 20), class = "sigma")
-# )
-# 
-# 
-
-# ============================================================
-# 5) FIT UNIFIED LINEAR HIERARCHICAL MODEL
-# ============================================================
-# joint_model <- brm(
-#   ACD ~ 1 + forest_group + state + time_nonprimary +
-#     (1 + time_nonprimary | forest_group),
-#   data = all_data,
-#   family = gaussian(),
-#   prior = priors,
-#   chains = 4,
-#   iter = 8000,
-#   warmup = 2000,
-#   cores = 4,
-#   backend = "cmdstanr",
-#   control = list(adapt_delta = 0.98),
-#   seed = 123
-# )
-
-# 
-# joint_model <- brm(
-#   ACD ~ 1 + state + time_nonprimary +
-#     (1 + time_nonprimary | state),
-#   data = all_data,
-#   family = gaussian(),
-#   chains = 4,
-#   iter = 8000,
-#   warmup = 2000,
-#   cores = 4,
-#   backend = "cmdstanr",
-#   control = list(adapt_delta = 0.98),
-#   seed = 123
-# )
 
 saveRDS(joint_model, "Models/unified_linear_carbon_model_24.02_26.rds")
 
 
 # ============================================================
-# 5A) CHECK MODEL FIT
+#  CHECK MODEL FIT
 # ============================================================
 
 # List of states
 states <- levels(all_data$state)
 
-library(dplyr)
-library(brms)
-library(ggplot2)
-
-library(dplyr)
-library(brms)
-library(ggplot2)
 
 # Open a PDF device
 pdf("pp_checks_by_state.pdf", width = 8, height = 6)
@@ -342,35 +280,32 @@ dev.off()
 # POPULATION-LEVEL POSTERIOR TRAJECTORIES (NO RANDOM EFFECTS)
 # ============================================================
 
-library(dplyr)
-library(tidybayes)
-library(ggplot2)
+#can start here
+joint_model <-  readRDS("Models/unified_linear_carbon_model_24.02_26.rds")
 
 # 1) Build prediction grid consistent with fitted model
 # 1) Build prediction grid consistent with fitted model
 newdata <- expand.grid(
-  time = seq(0, 60, by = 1),   # model uses time_c directly
+  time = seq(0, 75, by = 1),   # model uses time_c directly
   state  = levels(all_data$state)
 ) %>%
   mutate(
     state = factor(state, levels = levels(all_data$state))
-  )
+  ) %>%  
+  filter(!(state == "primary" & time != 0))
 
 # 2) Get posterior expected values (population-level only)
 draws_long <- joint_model %>%
   add_epred_draws(
     newdata = newdata,
-    re_formula = NA   # removes plot-level random intercepts
+    re_formula = NA,   # removes plot-level random intercepts
+    ndraws = 500
   ) %>%
   rename(
     draw = .draw,
     ACD  = .epred
-  )
+  ) 
 
-# 3) Thin to 500 coherent posterior draws (optional)
-set.seed(123)
-draws_long <- draws_long %>%
-  filter(draw %in% sample(unique(draw), 500))
 
 # ------------------------------------------------------------
 # SPAGHETTI PLOT
@@ -407,6 +342,7 @@ ggplot(summary_df,
   geom_line(linewidth = 1) +
   facet_wrap(~ state) +
   theme_minimal() +
+  ylim(0,300)+
   labs(
     y = "Aboveground Carbon (Mg C ha⁻¹)",
     x = "Years",
@@ -428,7 +364,6 @@ draws_long <- draws_long %>% ungroup %>%
   ) %>%
   rename(habitat = state)
 
-#albizia_current
 
 saveRDS(draws_long, "Outputs/onemodel_ACD_draws.rds")
 

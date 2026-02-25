@@ -117,7 +117,7 @@ scenario_row_order_visualisation_fun <- function(x){
 
 # A SINGLE VERSION 
 
-all_draws <- readRDS("Outputs/abovegroundcarbon_outcome_draws.rds")
+all_draws <- readRDS("Outputs/one_model_abovegroundcarbon_outcome_draws.rds")
 #_______________________________________________________________________________
 #transition rules 
 #_______________________________________________________________________________
@@ -378,10 +378,10 @@ calculate_delays_per_transition_fun <- function(x) {
 # --- Apply function to each list element ---
 scenario_i <- lapply(scenario_i, calculate_delays_per_transition_fun)
 
-check <- scenario_i[[19]] %>% scenario_row_order_visualisation_fun()
-saveRDS(check, "Outputs/dusty_single_post_draw.rds")
+#check2 <- scenario_i[[19]] %>% scenario_row_order_visualisation_fun()
+#saveRDS(check, "Outputs/dusty_single_post_draw.rds")
 check2 <- scenario_i[[190]] %>% scenario_row_order_visualisation_fun()
-saveRDS(check2, "Outputs/dusty_single_post_draw2.rds")
+#saveRDS(check2, "Outputs/dusty_single_post_draw2.rds")
 m <- check %>% filter(original_habitat == "primary" & habitat == "primary")
 
 ok <- check %>% filter(index == "all_primary_CY_D.csv 258")
@@ -934,7 +934,7 @@ scenario_v <- join_scenario_with_start_ACD(
 
 ACD_change_function_dt <- function(dt) {
   
-  # Ensure the input is a data.table (fast in-place operations)
+  # Ensure the input is a data.table 
   setDT(dt)
   
   # Step 1: Sort data by scenario index, production target, and year
@@ -1114,12 +1114,19 @@ socialDR_fun <- function(x, SDR) {
   x %>%
     left_join(SDR, by = "true_year") %>%
     
-    #COME BACK HERE - MULTIPLIED BY RATIO INSTEAD OF SCC_DISCOUNTED
+    #COME BACK HERE; can also MULTIPL BY RATIO [scc_discounted_ratio] INSTEAD OF SCC_DISCOUNTED
     
-    mutate(annual_carbon_impact_ACD = (scen_flux_ACD - SL_flux_ACD) * scc_discounted_ratio) %>%
+    mutate(annual_carbon_impact_ACD = (scen_flux_ACD - SL_flux_ACD) * scc_discounted) %>%
     
-    # Summarise across all years per scenario
-    group_by(index, production_target, scenarioStart, scenarioName, true_year) %>%
+    
+    # # Summarise across all years per scenario
+  
+  #SHOULD I BE GROUPING BY TRUE_YEAR?
+    # group_by(index, production_target, scenarioStart, scenarioName, true_year) %>%
+  
+#TRY WITHOUT??
+   group_by(index, production_target, scenarioStart, scenarioName) %>%
+
     summarise(
       TOTcarbon_ACD_impact = sum(annual_carbon_impact_ACD, na.rm = TRUE),
       .groups = "drop"
@@ -1136,8 +1143,22 @@ final_carbon2 <- lapply(scenario_v, final_carbon_fun, SDR = socialDR_2) %>% rbin
 final_carbon4 <- lapply(scenario_v, final_carbon_fun, SDR = socialDR_4) %>% rbindlist(idcol = "draw")
 final_carbon6 <- lapply(scenario_v, final_carbon_fun, SDR = socialDR_6) %>% rbindlist(idcol = "draw")
 
-#now calculate summary (mean and 95% CIs across the 500 posterior draws)
-#names(final_carbon2)
+# 
+# #WTF IS HAPPENING WITH THE DDISCOUNT APPROACH 
+# # fILTER ONE SCENARIO ONLY 
+# 
+# scen1 <- final_carbon4 %>% filter(index == "all_primary_CY_D.csv 398")
+# 
+# ggplot(scen1, aes(x = true_year,
+#                y = annual_carbon_impact_ACD,
+#                group = draw)) +
+#   geom_line(alpha = 0.15) +
+#   theme_minimal() +
+#   labs(x = "Year",
+#        y = "Annual carbon impact",
+#        title = "Spaghetti plot of annual carbon impact across posterior draws")
+# #now calculate summary (mean and 95% CIs across the 500 posterior draws)
+# #names(final_carbon2)
 
 #----------------------------------------------
 # Function: summarize_totcarbon_draws
@@ -1179,32 +1200,34 @@ posterior_summary_comb <- bind_rows(
 #add back in cumulative carbon stock years alongside SCC-discounted carbon impacts 
 posterior_summary_comb <- posterior_summary_comb %>%  left_join(carbon_stock_years_summary)
 
-# at the very end, store the output
-posterior_summary_all[[i]] <- posterior_summary_comb
-
-# optionally remove large objects to free memory before next iteration
-#rm(scenario_i, final_carbon2, final_carbon4, final_carbon6)
-#gc()
-
-}
-
-x <- posterior_summary_all[[1]]
-
-posterior_summary_all[[11]]
-saveRDS(posterior_summary_all, "Outputs/carbon_outcomes_across_500_draws.rds")
-
-
-#make plots ####
-posterior_summary_all2 <- posterior_summary_all[[1]] %>% left_join(scenario_composition, by = c("index", "production_target","scenarioStart", "scenarioName"))
-
+# # at the very end, store the output
+# posterior_summary_all[[i]] <- posterior_summary_comb
+# 
+# # optionally remove large objects to free memory before next iteration
+# #rm(scenario_i, final_carbon2, final_carbon4, final_carbon6)
+# #gc()
+# 
+# }
+# 
+# x <- posterior_summary_all[[1]]
+# 
+# posterior_summary_all[[11]]
+# saveRDS(posterior_summary_all, "Outputs/carbon_outcomes_across_500_draws.rds")
+# 
+# 
+# #make plots ####
+# posterior_summary_all2 <- posterior_summary_all[[1]] %>% left_join(scenario_composition, by = c("index", "production_target","scenarioStart", "scenarioName"))
+# 
 
 # with ACD - theres a problem 
-ggplot(posterior_summary_all2,
-       aes(x = production_target,
-           y = TOTcarbon_ACD_mean,
+# group_by(index, production_target, scenarioStart, scenarioName, true_year) %>%
+posterior_summary_comb %>%  
+  left_join(scenario_composition, by = c("index", "production_target","scenarioStart", "scenarioName")) %>% 
+  ggplot(aes(x = production_target,
+           y = TOTcarbon_ACD_mean/1000000000,
            colour = propOG)) +
-  geom_errorbar(aes(ymin = TOTcarbon_ACD_lwr95,
-                    ymax = TOTcarbon_ACD_upr95),
+  geom_errorbar(aes(ymin = TOTcarbon_ACD_lwr95/1000000000,
+                    ymax = TOTcarbon_ACD_upr95/1000000000),
                 width = 0) +
   geom_point(size = 3) +
   scale_colour_gradient(
@@ -1217,8 +1240,9 @@ ggplot(posterior_summary_all2,
     y = "Total Carbon (ACD)",
     title = "Total Carbon ACD with 95% Credible Intervals"
   ) +
+  facet_wrap(~discount_rate)+
   theme_minimal()
-names(posterior_summary_all2)
+ names(posterior_summary_all2)
 
 #with cumalitive carbon stock years
 ggplot(posterior_summary_all2,
@@ -1242,6 +1266,7 @@ ggplot(posterior_summary_all2,
   theme_minimal()
 names(posterior_summary_all2)
 
+}
 #___________________________________________
 #Save outputs for consolidated final figure
 #___________________________________________
