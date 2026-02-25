@@ -208,7 +208,7 @@ once_age30 <- once_draws %>% filter(functionalhabAge == 30) %>%
   select(draw, once_ACD_age30 = ACD)
 
 # --- per-draw ACD loss per m³ harvested during first rotation ---
-#Looks like this isnt being subsequently used!!!!!!!
+
 loss_per_m3_df <- primary_draws %>%
   left_join(once_age0, by = "draw") %>%
   mutate(
@@ -218,6 +218,7 @@ loss_per_m3_df <- primary_draws %>%
 
 #across posterior draws, quite substantial variation in loss per m3
 plot(loss_per_m3_df$loss_per_m3)
+mean(loss_per_m3_df$loss_per_m3)
 
 # --- define 2L alternative slopes as factors of once-logged slope ---
 slope_factors <- c(0.8, 1, 1.2)  # slower = 80%, same = 100%, faster = 120% than once-logged recovery
@@ -252,54 +253,55 @@ plot(twice_starting_ACD$ACD_2L_start_30yrAfter1L)
 
 # --- expand twice-logged draws across slope scenarios]
 
+# COME BACK HERE - TO WHERE THE PROBLEM IS STARTING
 ACD_twice_draws <- twice_starting_ACD %>%
   left_join(slopes_once_logged, by = "draw") %>%
   tidyr::expand_grid(
     functionalhabAge = years,
     slope_factor = slope_factors
-  ) %>%
+  ) %>% unique() %>% 
   # apply scaled slope to each draw
   mutate(
     slope_scaled = slope_once_logged * slope_factor,
     # raw ACD trajectories for different slopes
-    ACD_twice_logged_15yrStart_raw = ACD_2L_start_15yrAfter1L + slope_scaled * functionalhabAge,
-    ACD_twice_logged_30yrStart_raw = ACD_2L_start_30yrAfter1L + slope_scaled * functionalhabAge
+    ACD_twice_logged_15yrStart_raw = ACD_2L_start_15yrAfter1L + (slope_scaled * functionalhabAge),
+    ACD_twice_logged_30yrStart_raw = ACD_2L_start_30yrAfter1L + (slope_scaled * functionalhabAge)
   ) %>%
   select(draw, functionalhabAge, slope_factor,
          ACD_twice_logged_15yrStart_raw, ACD_twice_logged_30yrStart_raw)
 
-draw1 <- ACD_twice_draws %>% filter(draw == 1)
-
-draw1%>%
-  pivot_longer(
-    cols = starts_with("ACD_twice_logged_"),
-    names_to = "start_scenario",
-    values_to = "ACD"
-  ) %>%
-  mutate(
-    start_scenario = recode(
-      start_scenario,
-      "ACD_twice_logged_15yrStart_raw" = "Second logging at 15 yrs after first",
-      "ACD_twice_logged_30yrStart_raw" = "Second logging at 30 yrs after first"
-    ),
-    slope_factor = factor(slope_factor)
-  ) %>%
-  ggplot(aes(x = functionalhabAge, y = ACD,
-             colour = slope_factor, group = interaction(draw, slope_factor))) +
-  geom_line(alpha = 0.15) +
-  stat_summary(
-    aes(group = slope_factor),
-    fun = mean,
-    geom = "line",
-    linewidth = 1.3
-  ) +
-  facet_wrap(~ start_scenario) +
-  scale_colour_brewer(palette = "Dark2", name = "Slope factor") +
-  theme_minimal(base_size = 14) +
-  labs(
-    x = "Years since second logging",
-    y = "Aboveground Carbon Density (ACD)"
-  )
+# draw1 <- ACD_twice_draws %>% filter(draw == 1)
+# 
+# draw1%>%
+#   pivot_longer(
+#     cols = starts_with("ACD_twice_logged_"),
+#     names_to = "start_scenario",
+#     values_to = "ACD"
+#   ) %>%
+#   mutate(
+#     start_scenario = recode(
+#       start_scenario,
+#       "ACD_twice_logged_15yrStart_raw" = "Second logging at 15 yrs after first",
+#       "ACD_twice_logged_30yrStart_raw" = "Second logging at 30 yrs after first"
+#     ),
+#     slope_factor = factor(slope_factor)
+#   ) %>%
+#   ggplot(aes(x = functionalhabAge, y = ACD,
+#              colour = slope_factor, group = interaction(draw, slope_factor))) +
+#   geom_line(alpha = 0.15) +
+#   stat_summary(
+#     aes(group = slope_factor),
+#     fun = mean,
+#     geom = "line",
+#     linewidth = 1.3
+#   ) +
+#   facet_wrap(~ start_scenario) +
+#   scale_colour_brewer(palette = "Dark2", name = "Slope factor") +
+#   theme_minimal(base_size = 14) +
+#   labs(
+#     x = "Years since second logging",
+#     y = "Aboveground Carbon Density (ACD)"
+#   )
 
 #ensure correct plateau on a per-draw basis
 dt <- as.data.table(ACD_twice_draws)
@@ -324,7 +326,8 @@ ACD_twice_long <- ACD_twice_draws %>%
       start_age == "ACD_twice_logged_30yrStart" ~ "30yrAfter1L - e.g if primary goes to 2L during scenario"
     ),
     slope_factor = factor(slope_factor, levels = slope_factors)
-  )
+  )  %>%  
+  select(-c(ACD_twice_logged_15yrStart_raw, ACD_twice_logged_30yrStart_raw))
 
 # --- summarize posterior draws ---
 ACD_twice_summary <- ACD_twice_long %>%
@@ -380,30 +383,41 @@ cowplot::plot_grid(p_1l_r_plot, twice_logged_plot)
 #   #filter delay to always be >15 yrs for any forest parcel starting with once-logged habitat
 #   filter(harvest_delay>15) 
 
-
-#if parcel starts as twice-logged, use the 15yr after 1L curves - with different slope factors, tracking the assumption that all 2nd harvest occur at yr 0 for forest that was harvested for the first time 15 yrs prior 
-#if parcel starts as primary and goes to twice-logged, use the 30yrafter 1L, with different slope factors 
-unique(ACD_draws$habitat)
-ACD_twice_long <- ACD_twice_long %>% select(-ACD) %>%   pivot_longer(
-    cols = c(ACD_twice_logged_15yrStart_raw, ACD_twice_logged_30yrStart_raw),
-    names_to = "hab_trans_rules",
-    values_to = "ACD"
-  ) %>%
-  mutate(
-    hab_trans_rules = case_when(
-      hab_trans_rules == "ACD_twice_logged_15yrStart_raw" ~ "15yrAfter1L",
-      hab_trans_rules == "ACD_twice_logged_30yrStart_raw" ~ "30yrAfter1L",
-      TRUE ~ hab_trans_rules
-    )
-  ) %>%  
-  mutate(habitat = "twice-logged") %>% 
-  select(-hab_trans_rules)
-
-ACD_draws
-ACD_draws <- ACD_draws %>%    mutate(slope_factor = 1, 
+# 
+# #if parcel starts as twice-logged, use the 15yr after 1L curves - with different slope factors, tracking the assumption that all 2nd harvest occur at yr 0 for forest that was harvested for the first time 15 yrs prior 
+# #if parcel starts as primary and goes to twice-logged, use the 30yrafter 1L, with different slope factors 
+# unique(ACD_draws$habitat)
+# ACD_twice_long <- ACD_twice_long %>% select(-ACD) %>%   pivot_longer(
+#     cols = c(ACD_twice_logged_15yrStart_raw, ACD_twice_logged_30yrStart_raw),
+#     names_to = "hab_trans_rules",
+#     values_to = "ACD"
+#   ) %>%
+#   mutate(
+#     hab_trans_rules = case_when(
+#       hab_trans_rules == "ACD_twice_logged_15yrStart_raw" ~ "15yrAfter1L",
+#       hab_trans_rules == "ACD_twice_logged_30yrStart_raw" ~ "30yrAfter1L",
+#       TRUE ~ hab_trans_rules
+#     )
+#   ) %>%
+#   mutate(habitat = "twice-logged") %>%
+#   select(-hab_trans_rules)
+# 
+# ACD_draws
+ACD_draws <- ACD_draws %>%    mutate(slope_factor = 1,
                                           start_age = NA)
-plantation <- plantation %>%mutate(slope_factor = 1, 
+plantation <- plantation %>%mutate(slope_factor = 1,
                                                         start_age = NA)
+
+#make sure habitat starting as twice-logged has a distrinct trajectory
+ACD_twice_long <- ACD_twice_long %>%  
+  mutate(habitat = "twice-logged" ) %>% 
+  mutate(
+    habitat = case_when(
+      str_starts(start_age, "15yrAfter") ~ "twice_logged_start",
+      TRUE ~ habitat
+    )
+  )
+
 
 #combine once-logged, primary, twice-logged and restored and plantation
 final_ACD_draws <- ACD_draws %>% rbind(plantation) %>% rbind(ACD_twice_long)
