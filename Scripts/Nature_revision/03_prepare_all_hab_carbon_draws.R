@@ -24,8 +24,8 @@ UnLogged$MeasureTime <- factor(UnLogged$MeasureTime)
 unique(UnLogged$MeasureTime)
 
 #read in models
-log_brm <- readRDS("Models/logged_restored_model.rds")
-primary_brm <- readRDS("Models/primary_model.rds")
+log_brm <- readRDS("Models/logged_restored_model2.rds")
+primary_brm <- readRDS("Models/primary_model2.rds")
 plantation <- readRDS("Outputs/plantation_carbon_draws.rds") %>%  
   rename(functionalhabAge = plantationAge, 
          habitat = species)
@@ -97,7 +97,7 @@ ACD_draws <- bind_rows(logged_draws, primary_draws) %>%
          functionalhabAge = YearsSinceLogging, 
          ACD = .epred)
 
-#also get slopes for once-logged forest recovery for each draw
+#also get slopes for once-logged forest recovery for each draw - COME BACK TO AMD CHECK
 delta <- 1  # 1-year slope
 slopes_once_logged <- logged_draws %>%
   filter(habitat == "once-logged") %>%
@@ -162,7 +162,7 @@ p_1l_r_plot <- ggplot(ACD_summary, aes(x = functionalhabAge, y = mean,
   labs(x = "Years Since Logging",
        y = "Aboveground Carbon Density (ACD)",
        color = "Habitat type", fill = "Habitat type")
-
+p_1l_r_plot
 #______________________________________
 #INFER twice-logged dynamics ####
 #______________________________________
@@ -208,6 +208,7 @@ once_age30 <- once_draws %>% filter(functionalhabAge == 30) %>%
   select(draw, once_ACD_age30 = ACD)
 
 # --- per-draw ACD loss per m³ harvested during first rotation ---
+#Looks like this isnt being subsequently used!!!!!!!
 loss_per_m3_df <- primary_draws %>%
   left_join(once_age0, by = "draw") %>%
   mutate(
@@ -215,10 +216,42 @@ loss_per_m3_df <- primary_draws %>%
     loss_per_m3   = decline_first / vol_first_rotation
   )
 
-# --- define alternative slopes as factors of once-logged slope ---
+#across posterior draws, quite substantial variation in loss per m3
+plot(loss_per_m3_df$loss_per_m3)
+
+# --- define 2L alternative slopes as factors of once-logged slope ---
 slope_factors <- c(0.8, 1, 1.2)  # slower = 80%, same = 100%, faster = 120% than once-logged recovery
 
-# --- expand twice-logged draws across slope scenarios ---
+
+# second-rotation ACD loss per draw
+loss_second_df <- loss_per_m3_df %>%
+  mutate(
+    loss_second = vol_second_rotation * loss_per_m3
+  ) %>%
+  select(draw, loss_second)
+
+
+twice_starting_ACD <- once_age15 %>%
+  left_join(once_age30, by = "draw") %>%
+  left_join(loss_second_df, by = "draw") %>%
+  mutate(
+    ACD_2L_start_15yrAfter1L_raw = once_ACD_age15 - loss_second,
+    ACD_2L_start_30yrAfter1L_raw = once_ACD_age30 - loss_second,
+    
+    # clamp to minimum plausible ACD
+    ACD_2L_start_15yrAfter1L = pmax(ACD_2L_start_15yrAfter1L_raw, 15),
+    ACD_2L_start_30yrAfter1L = pmax(ACD_2L_start_30yrAfter1L_raw, 15)
+  ) %>%
+  select(draw,
+         ACD_2L_start_15yrAfter1L,
+         ACD_2L_start_30yrAfter1L)
+
+# hmm - lots of negative starting values if applying the m3-conversion factor 15 after 1st harvest
+plot(twice_starting_ACD$ACD_2L_start_15yrAfter1L)
+plot(twice_starting_ACD$ACD_2L_start_30yrAfter1L)
+
+# --- expand twice-logged draws across slope scenarios]
+
 ACD_twice_draws <- twice_starting_ACD %>%
   left_join(slopes_once_logged, by = "draw") %>%
   tidyr::expand_grid(
@@ -235,7 +268,40 @@ ACD_twice_draws <- twice_starting_ACD %>%
   select(draw, functionalhabAge, slope_factor,
          ACD_twice_logged_15yrStart_raw, ACD_twice_logged_30yrStart_raw)
 
-#ensure correct plateu on a per-draw basis
+draw1 <- ACD_twice_draws %>% filter(draw == 1)
+
+draw1%>%
+  pivot_longer(
+    cols = starts_with("ACD_twice_logged_"),
+    names_to = "start_scenario",
+    values_to = "ACD"
+  ) %>%
+  mutate(
+    start_scenario = recode(
+      start_scenario,
+      "ACD_twice_logged_15yrStart_raw" = "Second logging at 15 yrs after first",
+      "ACD_twice_logged_30yrStart_raw" = "Second logging at 30 yrs after first"
+    ),
+    slope_factor = factor(slope_factor)
+  ) %>%
+  ggplot(aes(x = functionalhabAge, y = ACD,
+             colour = slope_factor, group = interaction(draw, slope_factor))) +
+  geom_line(alpha = 0.15) +
+  stat_summary(
+    aes(group = slope_factor),
+    fun = mean,
+    geom = "line",
+    linewidth = 1.3
+  ) +
+  facet_wrap(~ start_scenario) +
+  scale_colour_brewer(palette = "Dark2", name = "Slope factor") +
+  theme_minimal(base_size = 14) +
+  labs(
+    x = "Years since second logging",
+    y = "Aboveground Carbon Density (ACD)"
+  )
+
+#ensure correct plateau on a per-draw basis
 dt <- as.data.table(ACD_twice_draws)
 dt <- merge(dt, primary_draws, by = "draw", all.x = TRUE)
 dt[, ACD_twice_logged_15yrStart := pmin(ACD_twice_logged_15yrStart_raw, primary_ACD)]
@@ -254,8 +320,8 @@ ACD_twice_long <- ACD_twice_draws %>%
   ) %>%
   mutate(
     start_age = case_when(
-      start_age == "ACD_twice-logged_15yrStart" ~ "15yrAfter1L - e.g if parcel starts scenario 2L",
-      start_age == "ACD_twice-logged_30yrStart" ~ "30yrAfter1L - e.g if primary goes to 2L during scenario"
+      start_age == "ACD_twice_logged_15yrStart" ~ "15yrAfter1L - e.g if parcel starts scenario 2L",
+      start_age == "ACD_twice_logged_30yrStart" ~ "30yrAfter1L - e.g if primary goes to 2L during scenario"
     ),
     slope_factor = factor(slope_factor, levels = slope_factors)
   )
@@ -275,11 +341,15 @@ print(ACD_summary)
 print(ACD_twice_summary)
 
 # --- plot ---
-twice_logged_plot <-ggplot(ACD_twice_summary, aes(x = functionalhabAge, y = mean_ACD,
+twice_logged_plot <-ACD_twice_summary %>% 
+# filter(slope_factor == 1.2) %>% 
+  ggplot(aes(x = functionalhabAge, y = mean_ACD,
                               color = slope_factor, fill = slope_factor)) +
   geom_ribbon(aes(ymin = lwr_ACD, ymax = upr_ACD), alpha = 0.2, color = NA) +
   geom_line(linewidth = 1.2) +
-  facet_wrap(~start_age, ncol = 1, scales = "free_y") +
+  facet_grid(start_age ~ slope_factor) +
+  
+ # facet_wrap(~start_age, ncol = 1, scales = "free_y") +
   theme_minimal(base_size = 14) +
   labs(
     x = "Years Since 2nd Logging",
@@ -311,133 +381,162 @@ cowplot::plot_grid(p_1l_r_plot, twice_logged_plot)
 #   filter(harvest_delay>15) 
 
 
-#if parcel starts as twice-logged, use the 15yr after 1L curves - with different slope factors, tracking the assumption that 
+#if parcel starts as twice-logged, use the 15yr after 1L curves - with different slope factors, tracking the assumption that all 2nd harvest occur at yr 0 for forest that was harvested for the first time 15 yrs prior 
 #if parcel starts as primary and goes to twice-logged, use the 30yrafter 1L, with different slope factors 
+unique(ACD_draws$habitat)
+ACD_twice_long <- ACD_twice_long %>% select(-ACD) %>%   pivot_longer(
+    cols = c(ACD_twice_logged_15yrStart_raw, ACD_twice_logged_30yrStart_raw),
+    names_to = "hab_trans_rules",
+    values_to = "ACD"
+  ) %>%
+  mutate(
+    hab_trans_rules = case_when(
+      hab_trans_rules == "ACD_twice_logged_15yrStart_raw" ~ "15yrAfter1L",
+      hab_trans_rules == "ACD_twice_logged_30yrStart_raw" ~ "30yrAfter1L",
+      TRUE ~ hab_trans_rules
+    )
+  ) %>%  
+  mutate(habitat = "twice-logged") %>% 
+  select(-hab_trans_rules)
 
-#______________________________________________________________
-#Add belowground processes.... STILL NEED TO INCORPORATE.... 
-#______________________________________________________________
+ACD_draws
+ACD_draws <- ACD_draws %>%    mutate(slope_factor = 1, 
+                                          start_age = NA)
+plantation <- plantation %>%mutate(slope_factor = 1, 
+                                                        start_age = NA)
 
-#Assumptions made for incorporating belowground losses ####
-#1. Adding belowground carbon and necromass. 
-#2. For first 10 years, above ground ACD is offset by belowground losses 
-#3. Belowground carbon recovers at the same rate as aboveground carbon thereafter (i.e. we  
-#assume that at year 10, belowground suddenly becomes a sink, equivalent to aboveground) 
-#4. Plantations lose all belowground carbon when deforested and don’t ever recover any belowground carbon. 
-#5. Establishement of plantations on deforested ground doesn’t increase or decrease belowground carbon.  
+#combine once-logged, primary, twice-logged and restored and plantation
+final_ACD_draws <- ACD_draws %>% rbind(plantation) %>% rbind(ACD_twice_long)
 
-
-#More formally
-#conversion to plantation = JUST ACD (i.e. 0 belowground carbon)
-#ACDforest + BCforest(t < 10) = ACDforest_t1 ----------> #  #if there is a habitat transition then first 10 years have the same ACD  ACD recovery is offset by belowground losses, or more formally
-#ACDforest + BCforest(t > 10) = ACDforest_t + (ACDforest_t * 0.31)
-
-belowground_fun <- function(x) {
-  
-  # 1. FOR PLANTATIONS 
-  #for plantations, they lose all belowground carbon when deforested and don’t ever recover any belowground carbon. 
-  #Establishement of plantations on deforested ground doesn’t increase or decrease belowground carbon.  
-  #This is operationalised by belowground carbon always being 0 if functional habitat = plantation, so ACD is basically all that matters
-  plantations <- x %>% 
-    filter(str_detect(habitat, "albizia|eucalyptus")) %>% 
-    mutate(full_carbon = ACD, 
-           full_carbon_lwr = lwr_ACD, 
-           full_carbon_upr = upr_ACD)
-  
-  #2. FOR ALL OTHER DATA 
-  
-  x <- x %>%  
-    #remove plantation cases 
-    filter(!str_detect(habitat, "albizia|eucalyptus"))
-  
-  #Get year 1 ACD 
-  yr1_filt <- x %>% filter(functionalhabAge == 1) %>% 
-    select(functional_habitat,original_habitat,habitat,ACD, upr_ACD, lwr_ACD) %>%  
-    rename(ACDt1 = ACD, 
-           uprACDt1 = upr_ACD, 
-           lwrACDt1 = lwr_ACD) %>% unique
-  
-  #if there is a habitat transition then first 10 years have the same fixed ACD 
-  #as ACD recovery is offset by belowground losses, or more formally
-  #ACDforest+BCforest(t < 10) = ACDforest_t1
-  
-  y <- x %>% left_join(yr1_filt) %>% 
-    # Check conditions and mutate ACD accordingly
-    mutate(
-      full_carbon = case_when(
-        
-        #if there is a habitat transition and functional hab age <10, fixed full carbon as t1 ACD (equivalent to belowground carbon loss offsetting above ground gains)
-        original_habitat != functional_habitat & functionalhabAge <= 10 ~ ACDt1,
-        
-        #if there is no habitat transition OR functional hab age >10, assume full carbon = ACD + BCD (where bcd = ACD*031)
-        original_habitat == functional_habitat | functionalhabAge > 10 ~ ACD + (ACD* 0.31),
-        TRUE ~ NA  # Otherwise NA
-      ), 
-      
-      #get uppr and lwr bounds
-      full_carbon_lwr = case_when(
-        original_habitat != functional_habitat & functionalhabAge <= 10 ~ lwr_ACD,
-        original_habitat == functional_habitat | functionalhabAge > 10 ~ lwr_ACD + (lwr_ACD* 0.31),
-        TRUE ~ NA), 
-      
-      full_carbon_upr = case_when(
-        original_habitat != functional_habitat & functionalhabAge <= 10 ~ upr_ACD,
-        original_habitat == functional_habitat | functionalhabAge > 10 ~ upr_ACD + (upr_ACD* 0.31),
-        TRUE ~ NA)
-    ) %>%  
-    
-    select(-c(ACDt1, uprACDt1, lwrACDt1))
-  
-  #recombine plantations and other data 
-  full_data <- rbind(plantations, y)
-  
-}
-
-allHabCarbon_60yrACD <- belowground_fun(carbhabs)
-
-#reorder columns names 
-names(allHabCarbon_60yrACD)
-allHabCarbon_60yrACD <- allHabCarbon_60yrACD %>%
-  select(original_habitat, habitat, functional_habitat,
-         functionalhabAge,
-         full_carbon, full_carbon_lwr, full_carbon_upr,
-         ACD,lwr_ACD, upr_ACD)
-
-
-#Plot functional habitat age for all transitions ####
-
-#without considering belowground/necromass carbon losses - ie. we get net carbon recovery in the first 10 years
-allHabCarbon_60yrACD %>%
-  ggplot(aes(x = functionalhabAge, y = ACD, colour = functional_habitat)) +
-  geom_line() +
-  facet_wrap(~original_habitat + habitat, scales = "free_y") +
-  labs(x = "True Year", y = "Full Carbon") +
-  theme_minimal()
-
-
-# considering belowground/necromass carbon losses - ie. we get assume following Mills,Riutta et al. 2023 PNAS
-# That in the first ten years after logging, gain in above-ground carbon are offset by belwground/necromass losses
-# We then conservatively assume full recovery of carbon drawdown thereafter
-allHabCarbon_60yrACD %>%
-  ggplot(aes(x = functionalhabAge, y = full_carbon, colour = functional_habitat)) +
-  geom_line() +
-  facet_wrap(~original_habitat + habitat, scales = "free_y") +
-  labs(x = "True Year", y = "Full Carbon") +
-  theme_minimal()
-
-
-#write Master output #####
-#NB this outputs a master output where ACD refers only to the raw above ground carbon values and 
-#where full_carbon incorporate belowground processes
-
-write.csv(allHabCarbon_60yrACD, "Outputs/allHabCarbon_60yrACD.csv")
+# 
+# #______________________________________________________________
+# #Add belowground processes.... STILL NEED TO INCORPORATE.... 
+# #______________________________________________________________
+# 
+# #Assumptions made for incorporating belowground losses ####
+# #1. Adding belowground carbon and necromass. 
+# #2. For first 10 years, above ground ACD is offset by belowground losses 
+# #3. Belowground carbon recovers at the same rate as aboveground carbon thereafter (i.e. we  
+# #assume that at year 10, belowground suddenly becomes a sink, equivalent to aboveground) 
+# #4. Plantations lose all belowground carbon when deforested and don’t ever recover any belowground carbon. 
+# #5. Establishement of plantations on deforested ground doesn’t increase or decrease belowground carbon.  
+# 
+# 
+# #More formally
+# #conversion to plantation = JUST ACD (i.e. 0 belowground carbon)
+# #ACDforest + BCforest(t < 10) = ACDforest_t1 ----------> #  #if there is a habitat transition then first 10 years have the same ACD  ACD recovery is offset by belowground losses, or more formally
+# #ACDforest + BCforest(t > 10) = ACDforest_t + (ACDforest_t * 0.31)
+# 
+# belowground_fun <- function(x) {
+#   
+#   # 1. FOR PLANTATIONS 
+#   #for plantations, they lose all belowground carbon when deforested and don’t ever recover any belowground carbon. 
+#   #Establishement of plantations on deforested ground doesn’t increase or decrease belowground carbon.  
+#   #This is operationalised by belowground carbon always being 0 if functional habitat = plantation, so ACD is basically all that matters
+#   plantations <- x %>% 
+#     filter(str_detect(habitat, "albizia|eucalyptus")) %>% 
+#     mutate(full_carbon = ACD, 
+#            full_carbon_lwr = lwr_ACD, 
+#            full_carbon_upr = upr_ACD)
+#   
+#   #2. FOR ALL OTHER DATA 
+#   
+#   x <- x %>%  
+#     #remove plantation cases 
+#     filter(!str_detect(habitat, "albizia|eucalyptus"))
+#   
+#   #Get year 1 ACD 
+#   yr1_filt <- x %>% filter(functionalhabAge == 1) %>% 
+#     select(functional_habitat,original_habitat,habitat,ACD, upr_ACD, lwr_ACD) %>%  
+#     rename(ACDt1 = ACD, 
+#            uprACDt1 = upr_ACD, 
+#            lwrACDt1 = lwr_ACD) %>% unique
+#   
+#   #if there is a habitat transition then first 10 years have the same fixed ACD 
+#   #as ACD recovery is offset by belowground losses, or more formally
+#   #ACDforest+BCforest(t < 10) = ACDforest_t1
+#   
+#   y <- x %>% left_join(yr1_filt) %>% 
+#     # Check conditions and mutate ACD accordingly
+#     mutate(
+#       full_carbon = case_when(
+#         
+#         #if there is a habitat transition and functional hab age <10, fixed full carbon as t1 ACD (equivalent to belowground carbon loss offsetting above ground gains)
+#         original_habitat != functional_habitat & functionalhabAge <= 10 ~ ACDt1,
+#         
+#         #if there is no habitat transition OR functional hab age >10, assume full carbon = ACD + BCD (where bcd = ACD*031)
+#         original_habitat == functional_habitat | functionalhabAge > 10 ~ ACD + (ACD* 0.31),
+#         TRUE ~ NA  # Otherwise NA
+#       ), 
+#       
+#       #get uppr and lwr bounds
+#       full_carbon_lwr = case_when(
+#         original_habitat != functional_habitat & functionalhabAge <= 10 ~ lwr_ACD,
+#         original_habitat == functional_habitat | functionalhabAge > 10 ~ lwr_ACD + (lwr_ACD* 0.31),
+#         TRUE ~ NA), 
+#       
+#       full_carbon_upr = case_when(
+#         original_habitat != functional_habitat & functionalhabAge <= 10 ~ upr_ACD,
+#         original_habitat == functional_habitat | functionalhabAge > 10 ~ upr_ACD + (upr_ACD* 0.31),
+#         TRUE ~ NA)
+#     ) %>%  
+#     
+#     select(-c(ACDt1, uprACDt1, lwrACDt1))
+#   
+#   #recombine plantations and other data 
+#   full_data <- rbind(plantations, y)
+#   
+# }
+# 
+# allHabCarbon_60yrACD <- belowground_fun(carbhabs)
+# 
+# #reorder columns names 
+# names(allHabCarbon_60yrACD)
+# allHabCarbon_60yrACD <- allHabCarbon_60yrACD %>%
+#   select(original_habitat, habitat, functional_habitat,
+#          functionalhabAge,
+#          full_carbon, full_carbon_lwr, full_carbon_upr,
+#          ACD,lwr_ACD, upr_ACD)
+# 
+# 
+# #Plot functional habitat age for all transitions ####
+# 
+# #without considering belowground/necromass carbon losses - ie. we get net carbon recovery in the first 10 years
+# allHabCarbon_60yrACD %>%
+#   ggplot(aes(x = functionalhabAge, y = ACD, colour = functional_habitat)) +
+#   geom_line() +
+#   facet_wrap(~original_habitat + habitat, scales = "free_y") +
+#   labs(x = "True Year", y = "Full Carbon") +
+#   theme_minimal()
+# 
+# 
+# # considering belowground/necromass carbon losses - ie. we get assume following Mills,Riutta et al. 2023 PNAS
+# # That in the first ten years after logging, gain in above-ground carbon are offset by belwground/necromass losses
+# # We then conservatively assume full recovery of carbon drawdown thereafter
+# allHabCarbon_60yrACD %>%
+#   ggplot(aes(x = functionalhabAge, y = full_carbon, colour = functional_habitat)) +
+#   geom_line() +
+#   facet_wrap(~original_habitat + habitat, scales = "free_y") +
+#   labs(x = "True Year", y = "Full Carbon") +
+#   theme_minimal()
+# 
+# 
+# #write Master output #####
+# #NB this outputs a master output where ACD refers only to the raw above ground carbon values and 
+# #where full_carbon incorporate belowground processes
+# 
+# write.csv(allHabCarbon_60yrACD, "Outputs/allHabCarbon_60yrACD.csv")
 
 
 
 #Build final posterior draws ####
-saveRDS(ACD_draws, "Outputs/primary_restored_once-logged_ACD_draws.rds")
-saveRDS(ACD_twice_long, "Outputs/twice-logged_draws_diff_assumptions.rds")
+# saveRDS(ACD_draws, "Outputs/primary_restored_once-logged_ACD_draws.rds")
+# saveRDS(ACD_twice_long, "Outputs/twice-logged_draws_diff_assumptions.rds")
 
+#_________________________
+#Outputs ####
+#_________________________
 
-
+# save ACD draw (no below ground, and assuming different slop trajectories for twice logged forest)
+saveRDS(final_ACD_draws, "Outputs/abovegroundcarbon_outcome_draws.rds")
 

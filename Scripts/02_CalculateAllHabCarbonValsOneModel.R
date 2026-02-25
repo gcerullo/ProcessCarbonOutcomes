@@ -61,35 +61,11 @@ unique(UnLogged$MeasureTime)
 # ---------- FIT BRMS MODELS ----------
 # 1) Main model: ACD ~ YearsSinceLogging * FACE + (1|Plot) + (1|LoggingMethod:Coupe)
 # Use weakly informative priors
-# priors_main <- c(
-#   prior(normal(0, 50), class = "Intercept"),
-#   prior(normal(0, 10), class = "b"),
-#   prior(student_t(3, 0, 10), class = "sd") # group-level sd
-# )
-
-# priors_main <- c(
-#   prior(normal(65, 15), class = "Intercept"),   # initial ACD after logging
-#   prior(normal(2, 1), class = "b"),            # recovery slope per year
-#   prior(student_t(3, 0, 10), class = "sd"),    # group-level SD (Plot, LoggingMethod:Coupe)
-#   prior(student_t(3, 0, 15), class = "sigma")  # residual SD
-# )
-
 priors_main <- c(
-  prior(normal(65, 15), class = "Intercept"),
-  
-  # slope for YearsSinceLogging
-  prior(normal(2, 0.5), class = "b", coef = "YearsSinceLogging"),
-  
-  # FACE main effect (difference at year 0)
-  prior(normal(0, 20), class = "b", coef = "FACEProjectScenario"),
-  
-  # interaction (difference in slope)
-  prior(normal(0, 0.5), class = "b", coef = "YearsSinceLogging:FACEProjectScenario"),
-  
-  prior(student_t(3, 0, 8), class = "sd"),
-  prior(student_t(3, 0, 12), class = "sigma")
+  prior(normal(0, 50), class = "Intercept"),
+  prior(normal(0, 10), class = "b"),
+  prior(student_t(3, 0, 10), class = "sd") # group-level sd
 )
-
 
 # Fit model (adjust iter/chains/cores per your compute)
 log_brm <- brm(
@@ -98,8 +74,8 @@ log_brm <- brm(
   family = gaussian(),
   prior = priors_main,
   chains = 4,
-  iter = 8000,
-  warmup = 2000,
+  iter = 4000,
+  warmup = 1000,
   cores = 4,
   seed = 123,
   control = list(adapt_delta = 0.95)
@@ -124,14 +100,8 @@ log_brm <- brm(
 # )
 
 # Priors
-# priors_primary <- c(
-#   prior(normal(0, 50), class = "Intercept"),  # wide prior for intercept
-#   prior(normal(0, 10), class = "sd"),         # prior for group-level SD
-#   prior(student_t(3, 0, 10), class = "sigma") # prior for residual SD
-# )
-
 priors_primary <- c(
-  prior(normal(200, 10), class = "Intercept"),  # wide prior for intercept
+  prior(normal(0, 50), class = "Intercept"),  # wide prior for intercept
   prior(normal(0, 10), class = "sd"),         # prior for group-level SD
   prior(student_t(3, 0, 10), class = "sigma") # prior for residual SD
 )
@@ -143,20 +113,19 @@ primary_brm <- brm(
   family = gaussian(),
   prior = priors_primary,
   chains = 4,
-  iter = 8000,
-  warmup = 2000,
+  iter = 4000,
+  warmup = 1000,
   cores = 4,
   seed = 123,
   control = list(adapt_delta = 0.95)
 )
 
-saveRDS(log_brm, "Models/logged_restored_model2.rds")
-saveRDS(primary_brm, "Models/primary_model2.rds")
+
 # ---------- Posterior Predictive Checks ----------
 
 #Can start here:
-#log_brm <- readRDS("Models/logged_restored_model.rds")
-#primary_brm <- readRDS("Models/primary_model.rds")
+log_brm <- readRDS("Models/logged_restored_model.rds")
+primary_brm <- readRDS("Models/primary_model.rds")
 
 # For Logged model
 pp_check(log_brm)  # default density overlay

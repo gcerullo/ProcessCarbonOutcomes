@@ -10,6 +10,7 @@ library(ggplot2)
 library(brms)
 library(bayesplot)
 library(tidybayes)
+library(cmdstanr)
 
 #read in SABAH SOFTWOOD DATA 
 SSB <- read.csv("RawData/SSB_plot_data.csv") %>%  rename(

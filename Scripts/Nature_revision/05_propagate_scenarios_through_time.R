@@ -70,7 +70,13 @@ all_start_landscape<- all_start_landscape %>%
 
 #social discount rate caluclate for 2,4,6% 
 #built in the CalculateSocialDiscountRates.R script 
-socialDR <- read.csv("Outputs/SocialDiscountRates_2_4_6pc_DR.csv")
+socialDR <- read.csv("Outputs/SocialDiscountRates_2_4_6pc_DR.csv") %>% 
+  group_by(discount_rate) %>%
+  arrange(year, .by_group = TRUE) %>%
+  mutate(
+    scc_discounted_ratio = scc_discounted / first(scc_discounted)
+  ) %>%
+  ungroup()
 
 
 #for plotting throughout, get amount of oldgrowth left in each scenario 
@@ -103,13 +109,14 @@ scenario_row_order_visualisation_fun <- function(x){
 #read in posterior draws
 #___________________________
 
-#Build final posterior draws across habs ####
-p_l_r <- readRDS("Outputs/primary_restored_once_logged_ACD_draws.rds") 
-#currently has different twice-logged trajectories - from either clearing 15 yr or 30 once-logged.
-twice <- readRDS("Outputs/twice_logged_draws_diff_assumptions.rds")
-plant <- readRDS("Outputs/plantation_carbon_draws.rds") %>%  rename(habitat = species, functionalhabAge = plantationAge)
+# #Build final posterior draws across habs ####
+# p_l_r <- readRDS("Outputs/primary_restored_once_logged_ACD_draws.rds") 
+# #currently has different twice-logged trajectories - from either clearing 15 yr or 30 once-logged.
+# twice <- readRDS("Outputs/twice_logged_draws_diff_assumptions.rds")
+# plant <- readRDS("Outputs/plantation_carbon_draws.rds") %>%  rename(habitat = species, functionalhabAge = plantationAge)
 
 # A SINGLE VERSION 
+
 all_draws <- readRDS("Outputs/abovegroundcarbon_outcome_draws.rds")
 #_______________________________________________________________________________
 #transition rules 
@@ -212,60 +219,56 @@ scenarios <- scenarios %>%  update_1L_functional_habitat() %>%
 scenarios <- lapply(scenarios, as.data.table)
 
 
-# #check that we have the correct number of harvest delays per transition!!!
-# m <- scenarios[[9]]
-# p <- m %>% group_by(index, production_target, functionalhabAge, habitat, original_habitat) %>% count()
-# unique(p$n)
-# hist(p$n)
-#q <- m %>% filter(index == "mostly_2L_deforested_CY_D.csv 1") %>% unique() 
-#q2 <- m %>% filter(index == "mostly_2L_deforested_CY_D.csv 291") 
-  
-#________________________________________________________________
-#make correct modifications to each draw
-#__________________________________________________________________
-primary <- p_l_r %>% filter((habitat == "primary"))
-restored <- p_l_r %>% filter((habitat == "restored"))
+#_______________________________________________________
+#quick plot of each hanitat type
+#_______________________________________________________
 
-once_logged <-  p_l_r %>% filter((habitat == "once_logged")) %>%  mutate(habitat = if_else(habitat == "once_logged", "once-logged", habitat))
-#for scenarios starting once-logged assume the forest was logged 15yrs before scneario data
-once_logged_start <- p_l_r %>% filter((habitat == "once_logged")) %>% 
-  mutate(functionalhabAge = functionalhabAge -15) %>%  
-  filter(functionalhabAge >-1) %>%  
-  mutate(habitat = "once-logged_start")
+df_summary <- all_draws %>%
+  group_by(functionalhabAge, habitat) %>%
+  summarise(
+    mean_ACD = mean(ACD, na.rm = TRUE),
+    lower = quantile(ACD, 0.025, na.rm = TRUE),
+    upper = quantile(ACD, 0.975, na.rm = TRUE),
+    .groups = "drop"
+  )
 
-#2L ->2L forest that starts as twice-logged was first logged fifteen years previously then reharvested just before scenario start
-twice_logged_start <-twice %>% filter(start_age == "15yrAfter1L - e.g if parcel starts scenario 2L") %>%  
-  mutate(functionalhabAge = functionalhabAge -15) %>%  
-  filter(functionalhabAge >-1) %>% 
-  mutate(habitat = "twice-logged_start")
+ggplot(df_summary, aes(x = functionalhabAge, y = mean_ACD)) +
+  geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.2) +
+  geom_line() +
+  geom_point() +
+  labs(
+    x = "Functional Habitat Age",
+    y = "Mean ACD",
+    title = "ACD vs Functional Habitat Age (95% Credible Intervals)"
+  ) +
+  facet_wrap(~ habitat) +
+  theme_minimal()
 
-#1L-2L forest that goes from once-logged to twice-logged during scenarios
-#not allowed to be harvest for 15yrs)
-
-#second harvest is not allowed for first 15 yrs, then it goes to twice-logged(30 yr after once-logging version)
-twice_logged <-twice %>% filter(start_age == "30yrAfter1L - e.g if primary goes to 2L during scenario") %>% 
-  mutate(habitat = "twice-logged")
+# moved upstream I beleive; #make sure habitat starting as twice-logged has a distinct trajectory
+# all_draws <- all_draws %>%  
+#   mutate(
+#     habitat = case_when(
+#       str_starts(start_age, "15yrAfter") ~ "twice_logged_start",
+#       TRUE ~ habitat
+#     )
+#   )
 
 #____________________________________________
-#combine all draws
+#specify the slope factor
 #____________________________________________
 #Note primary forest has NA for functionalhabAge
-all_draws <- primary %>% rbind(restored) %>% rbind(once_logged) %>% rbind(once_logged_start) %>%  
-   rbind(plant)
+# all_draws <- primary %>% rbind(restored) %>% rbind(once_logged) %>% rbind(once_logged_start) %>%  
+#    rbind(plant)
 
 #SELECT TWICE-LOGGED RECOVERY TRAJECTORY- HARD-CODE
 #!!!!!select which twice-logged recovery trajectory to consider using 'slope factor' - 
 #1 = same slope as 1L, 0.8 is 20% slower recovery, 1.2 = 20% faster recovery
-print(twice_logged_slope_trajectory)
-diff_2Ls <- twice_logged %>% rbind(twice_logged_start) %>% 
-  filter(slope_factor == twice_logged_slope_trajectory) %>% 
-  select( draw, functionalhabAge, ACD, habitat) %>% unique()
 
-all_draws<- all_draws %>% rbind(diff_2Ls)
-
+all_draws <- all_draws %>% filter(slope_factor == twice_logged_slope_trajectory)
 #turn draws into a list where each draw is it's own df
 all_draws <- all_draws %>%
   rename(functional_habitat = habitat) %>%  # rename first
+  select(-start_age) %>% 
   group_split(draw)     
 
 #convert to datatable
@@ -405,7 +408,6 @@ scenario_ACD_fun <- function(x) {
   #--------------------------------------------------------------
   # IMPORTANT:
   # - Staggering divides *parcels (area)* across delays
-  # - Never divide carbon density by delays
   # - Use pmax(1, num_transition_delays) to avoid division by 0
   
   #x[, parcels_per_delay := num_parcels / pmax(1, num_transition_delays)]
@@ -446,6 +448,8 @@ scenario_ACD_fun <- function(x) {
 
 scenario_v <- lapply(scenario_i, scenario_ACD_fun)
 b <- scenario_v[[1]]
+f <- scenario_v[[100]]
+
 
 ###
 ##
@@ -657,8 +661,8 @@ plot <- carbon_df %>%
   
   # Error bars (clearer, thicker, slightly transparent)
   geom_errorbar(
-    aes(ymin = lwr_cum_stock_year_50,
-        ymax = upr_cum_stock_year_50),
+    aes(ymin = lwr_cum_stock_year_80,
+        ymax = upr_cum_stock_year_80),
     width = 0.015,
     linewidth = 0.6,
     alpha = 0.5
@@ -898,6 +902,36 @@ scenario_v <- join_scenario_with_start_ACD(
 #           no longer needed. Works on a data.table and can be applied to lists of
 #           scenarios/draws.
 # --------------------------------------------------------------------------------
+
+#COME BACK AND TEST ALTERNATIVE APPROACH TO FLUX CALCULATION
+# #Andrew's way #-22135273
+# andrew <- single %>%  
+#   mutate(
+#     #get discounted annual impact for scenario and starting landscape
+#     SC_carbon_impact = (scen_flux * scc_discounted),
+#     SL_carbon_impact = (SL_flux * scc_discounted), 
+#     
+#     #sum over these values
+#     SC_summedC = sum(SC_carbon_impact,na.rm = TRUE), 
+#     SL_summedC = sum(SL_carbon_impact,na.rm = TRUE), 
+#     
+#     
+#     #minus SL from Scenario to get full impact 
+#     totalSCC = SC_summedC - SL_summedC
+#   )
+# 
+# 
+# #Swinfield's way #-22135273
+# 
+# Swinfield <- single %>%  
+#   mutate(
+#     #get discounted annual impact for scenario and starting landscape
+#     carbon_impact = (scen_flux - SL_flux) * scc_discounted, 
+#     totalSCC = sum(carbon_impact,na.rm = TRUE))
+
+
+
+
 ACD_change_function_dt <- function(dt) {
   
   # Ensure the input is a data.table (fast in-place operations)
@@ -1080,7 +1114,9 @@ socialDR_fun <- function(x, SDR) {
   x %>%
     left_join(SDR, by = "true_year") %>%
     
-    mutate(annual_carbon_impact_ACD = (scen_flux_ACD - SL_flux_ACD) * scc_discounted) %>%
+    #COME BACK HERE - MULTIPLIED BY RATIO INSTEAD OF SCC_DISCOUNTED
+    
+    mutate(annual_carbon_impact_ACD = (scen_flux_ACD - SL_flux_ACD) * scc_discounted_ratio) %>%
     
     # Summarise across all years per scenario
     group_by(index, production_target, scenarioStart, scenarioName, true_year) %>%
@@ -1156,6 +1192,56 @@ x <- posterior_summary_all[[1]]
 
 posterior_summary_all[[11]]
 saveRDS(posterior_summary_all, "Outputs/carbon_outcomes_across_500_draws.rds")
+
+
+#make plots ####
+posterior_summary_all2 <- posterior_summary_all[[1]] %>% left_join(scenario_composition, by = c("index", "production_target","scenarioStart", "scenarioName"))
+
+
+# with ACD - theres a problem 
+ggplot(posterior_summary_all2,
+       aes(x = production_target,
+           y = TOTcarbon_ACD_mean,
+           colour = propOG)) +
+  geom_errorbar(aes(ymin = TOTcarbon_ACD_lwr95,
+                    ymax = TOTcarbon_ACD_upr95),
+                width = 0) +
+  geom_point(size = 3) +
+  scale_colour_gradient(
+    low = "#FDB863",   # light orange
+    high = "#B30000",  # red
+    name = "Proportion OG"
+  ) +
+  labs(
+    x = "Production Target",
+    y = "Total Carbon (ACD)",
+    title = "Total Carbon ACD with 95% Credible Intervals"
+  ) +
+  theme_minimal()
+names(posterior_summary_all2)
+
+#with cumalitive carbon stock years
+ggplot(posterior_summary_all2,
+       aes(x = production_target,
+           y = mean_cum_stock_year,
+           colour = propOG)) +
+  geom_errorbar(aes(ymin = lwr_cum_stock_year_95,
+                    ymax = upr_cum_stock_year_95),
+                width = 0) +
+  geom_point(size = 3) +
+  scale_colour_gradient(
+    low = "#FDB863",   # light orange
+    high = "#B30000",  # red
+    name = "Proportion OG"
+  ) +
+  labs(
+    x = "Production Target",
+    y = "Total Carbon (ACD)",
+    title = "Total Carbon ACD with 95% Credible Intervals"
+  ) +
+  theme_minimal()
+names(posterior_summary_all2)
+
 #___________________________________________
 #Save outputs for consolidated final figure
 #___________________________________________
@@ -1165,6 +1251,8 @@ getwd()
 names(posterior_summary_comb)
 
 #save final outputs....
+
+# VISUALISE 
 
 
 
