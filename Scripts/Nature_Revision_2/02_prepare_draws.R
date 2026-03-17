@@ -14,10 +14,25 @@ set.seed(123)
 #params
 years <- 0:75
 
+# ============================================================
+# Nature Revision 2 run root (single-folder replicability)
+# ============================================================
+
 nr2_run_id <- Sys.getenv("NR2_RUN_ID")
+if (identical(nr2_run_id, "")) {
+  nr2_latest <- file.path("Outputs", "Nature_Revision_Outputs", "NR2", "LATEST_RUN.txt")
+  if (file.exists(nr2_latest)) {
+    latest_lines <- readLines(nr2_latest, warn = FALSE)
+    rid <- sub("^run_id:\\s*", "", latest_lines[grepl("^run_id:", latest_lines)])
+    if (length(rid) == 1 && nzchar(rid)) {
+      nr2_run_id <- rid
+    }
+  }
+}
 if (identical(nr2_run_id, "")) nr2_run_id <- format(Sys.time(), "%Y-%m-%d_%H%M%S")
 
-nr2_base <- file.path("Outputs", "Nature_Revision_Outputs", "Nature_Revision_2")
+# Keep NR2 outputs in a short path to avoid Windows path-length issues
+nr2_base <- file.path("Outputs", "Nature_Revision_Outputs", "NR2")
 nr2_root <- file.path(nr2_base, nr2_run_id)
 
 # Update overall NR2 latest-run pointer (safe to overwrite)
@@ -34,7 +49,7 @@ writeLines(
 # -----------------------------------------
 # Inputs: prefer Nature Revision 2 run root
 # -----------------------------------------
-joint_model_path <- file.path(nr2_root, "01_one_model_to_rule_them_all", "models", "unified_linear_carbon_model.rds")
+joint_model_path <- file.path(nr2_root, "01_one_model", "models", "unified_linear_carbon_model.rds")
 if (!file.exists(joint_model_path)) {
   # Fallback: allow running this step without NR2_RUN_ID by using the one-model LATEST_RUN pointer
   one_model_latest <- file.path("Outputs", "Nature_Revision_Outputs", "one_model_to_rule_them_all", "LATEST_RUN.txt")
@@ -50,7 +65,7 @@ joint_model <- readRDS(joint_model_path)
 # -----------------------------------------
 # Outputs: Nature Revision 2 run root structure
 # -----------------------------------------
-prep_out_base <- file.path(nr2_root, "02_prepare_draws")
+prep_out_base <- file.path(nr2_root, "02_draws")
 prep_out_root <- prep_out_base
 prep_fig_dir <- file.path(prep_out_root, "figures")
 prep_tab_dir <- file.path(prep_out_root, "tables")
@@ -707,8 +722,8 @@ ggsave(
 #Outputs ####
 #_________________________
 
-# save ACD draw (no below ground, and assuming different slop trajectories for twice logged forest)
-saveRDS(final_ACD_draws, file.path(prep_rds_dir, "one_model_abovegroundcarbon_outcome_draws.rds"))
+# save ACD draw (no below ground, and assuming different slope trajectories for twice logged forest)
+saveRDS(final_ACD_draws, file.path(prep_rds_dir, "acdraws_aboveground.rds"))
 
-write.csv(final_ACD_summary, file.path(prep_tab_dir, "final_abovegroundcarbon_summary.csv"), row.names = FALSE)
+write.csv(final_ACD_summary, file.path(prep_tab_dir, "acdraws_aboveground_summary.csv"), row.names = FALSE)
 

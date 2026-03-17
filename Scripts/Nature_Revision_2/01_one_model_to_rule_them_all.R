@@ -47,10 +47,11 @@ CORES_FIT <- 4
 nr2_run_id <- Sys.getenv("NR2_RUN_ID")
 if (identical(nr2_run_id, "")) nr2_run_id <- format(Sys.time(), "%Y-%m-%d_%H%M%S")
 
-nr2_base <- file.path("Outputs", "Nature_Revision_Outputs", "Nature_Revision_2")
+# Keep NR2 outputs in a short path to avoid Windows path-length issues
+nr2_base <- file.path("Outputs", "Nature_Revision_Outputs", "NR2")
 nr2_root <- file.path(nr2_base, nr2_run_id)
 
-step_root <- file.path(nr2_root, "01_one_model_to_rule_them_all")
+step_root <- file.path(nr2_root, "01_one_model")
 nr_model_root <- file.path(step_root, "models")
 nr_fig_dir <- file.path(step_root, "figures")
 nr_tab_dir <- file.path(step_root, "tables")

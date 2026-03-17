@@ -14,9 +14,20 @@ set.seed(123)
 # ============================================================
 
 nr2_run_id <- Sys.getenv("NR2_RUN_ID")
+if (identical(nr2_run_id, "")) {
+  nr2_latest <- file.path("Outputs", "Nature_Revision_Outputs", "NR2", "LATEST_RUN.txt")
+  if (file.exists(nr2_latest)) {
+    latest_lines <- readLines(nr2_latest, warn = FALSE)
+    rid <- sub("^run_id:\\s*", "", latest_lines[grepl("^run_id:", latest_lines)])
+    if (length(rid) == 1 && nzchar(rid)) {
+      nr2_run_id <- rid
+    }
+  }
+}
 if (identical(nr2_run_id, "")) nr2_run_id <- format(Sys.time(), "%Y-%m-%d_%H%M%S")
 
-nr2_base <- file.path("Outputs", "Nature_Revision_Outputs", "Nature_Revision_2")
+# Keep NR2 outputs in a short path to avoid Windows path-length issues
+nr2_base <- file.path("Outputs", "Nature_Revision_Outputs", "NR2")
 nr2_root <- file.path(nr2_base, nr2_run_id)
 
 # Update overall NR2 latest-run pointer (safe to overwrite)
@@ -30,7 +41,9 @@ writeLines(
   con = file.path(nr2_base, "LATEST_RUN.txt")
 )
 
-step_root <- file.path(nr2_root, "03_social_discount_rates")
+manifest_path <- file.path(nr2_root, "manifest.txt")
+
+step_root <- file.path(nr2_root, "03_scc")
 step_fig_dir <- file.path(step_root, "figures")
 step_tab_dir <- file.path(step_root, "tables")
 
@@ -54,7 +67,22 @@ marginal_damage_exponent<-1
 
 #read in data ####
 
-rcps<-read_csv("Inputs/Venmans_Value of an offset 25_1evening.csv", skip = 2, col_types = 'd') %>%
+venmans_path <- file.path("Inputs", "Venmans_Value of an offset 25_1evening.csv")
+stopifnot(file.exists(venmans_path))
+
+cat(
+  paste0(
+    "\n[", format(Sys.time(), "%Y-%m-%d %H:%M:%S"), "] ",
+    "03_calculate_social_discount_rates.R\n",
+    "  input_venmans_csv: ", normalizePath(venmans_path, winslash = "/", mustWork = FALSE), "\n",
+    "  output_table: ", normalizePath(file.path(step_tab_dir, "scc_dr_2_4_6.csv"), winslash = "/", mustWork = FALSE), "\n",
+    "  output_figure: ", normalizePath(file.path(step_fig_dir, "scc_timeseries.png"), winslash = "/", mustWork = FALSE), "\n"
+  ),
+  file = manifest_path,
+  append = TRUE
+)
+
+rcps<-read_csv(venmans_path, skip = 2, col_types = 'd') %>%
   slice(-(1)) %>%
   select(starts_with('RCP'))
 
@@ -88,7 +116,6 @@ scc_gen<-function(temp_rise, r_discount = 0.03, r_GDP_growth = 0.017, timeframe 
   discount<-exp(-r_discount*time)
   marginal_scc<-marginal_damage * discount
   
-  end<-timeframe
   total_scc<-sapply(1:timeframe, function(i){
     sum(marginal_scc[i:timeframe])/discount[i]
   }) %>% unlist()
@@ -98,7 +125,7 @@ scc_gen<-function(temp_rise, r_discount = 0.03, r_GDP_growth = 0.017, timeframe 
   #   sum(marginal_scc[(i+1):timeframe_i])/discount[i+1]
   # }) %>% unlist()
   
-  years<-years[1:length(total_scc)]
+  years<-years[seq_along(total_scc)]
   names(total_scc)<-as.character(years)
   return(total_scc)
 }
@@ -126,7 +153,7 @@ for (r_discount in discount_rates) {
 df_scc <- bind_rows(scc_list)
 
 # Plot the results
-ggplot(df_scc, aes(x = year, y = scc_discounted, color = discount_rate)) +
+p_scc <- ggplot(df_scc, aes(x = year, y = scc_discounted, color = discount_rate)) +
   geom_line() +
   labs(title = "Discounted SCC over time for different discount rates",
        x = "Year",
@@ -135,13 +162,21 @@ ggplot(df_scc, aes(x = year, y = scc_discounted, color = discount_rate)) +
   theme_minimal()
 
 # Save figure + table
+print(p_scc)
+
 ggsave(
-  filename = file.path(step_fig_dir, "social_discount_rates_timeseries.png"),
+  filename = file.path(step_fig_dir, "scc_timeseries.png"),
+  plot = p_scc,
   width = 7.5,
   height = 4.5,
   units = "in",
   dpi = 220
 )
 
-write.csv(df_scc, file.path(step_tab_dir, "SocialDiscountRates_2_4_6pc_DR.csv"), row.names = FALSE)
+dir.create(step_tab_dir, recursive = TRUE, showWarnings = FALSE)
+write.csv(
+  df_scc,
+  file.path(step_tab_dir, "scc_dr_2_4_6.csv"),
+  row.names = FALSE
+)
 
