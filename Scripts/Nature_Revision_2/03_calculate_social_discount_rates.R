@@ -10,55 +10,16 @@ library(gridExtra)
 set.seed(123)
 
 # ============================================================
-# Nature Revision 2 run root (single-folder replicability)
+# OUTPUT LOCATIONS (simple, deterministic)
 # ============================================================
 
-nr2_run_id <- Sys.getenv("NR2_RUN_ID")
-if (identical(nr2_run_id, "")) {
-  nr2_latest <- file.path("Outputs", "Nature_Revision_Outputs", "NR2", "LATEST_RUN.txt")
-  if (file.exists(nr2_latest)) {
-    latest_lines <- readLines(nr2_latest, warn = FALSE)
-    rid <- sub("^run_id:\\s*", "", latest_lines[grepl("^run_id:", latest_lines)])
-    if (length(rid) == 1 && nzchar(rid)) {
-      nr2_run_id <- rid
-    }
-  }
-}
-if (identical(nr2_run_id, "")) nr2_run_id <- format(Sys.time(), "%Y-%m-%d_%H%M%S")
+source(file.path("Scripts", "Nature_Revision_2", "_config.R"))
+paths <- nr2_step_paths("03_scc")
+nr2_ensure_dirs(paths)
 
-# Keep NR2 outputs in a short path to avoid Windows path-length issues
-nr2_base <- file.path("Outputs", "Nature_Revision_Outputs", "NR2")
-nr2_root <- file.path(nr2_base, nr2_run_id)
-
-# Update overall NR2 latest-run pointer (safe to overwrite)
-dir.create(nr2_root, recursive = TRUE, showWarnings = FALSE)
-writeLines(
-  c(
-    "Latest Nature Revision 2 run",
-    paste0("run_id: ", nr2_run_id),
-    paste0("run_root: ", normalizePath(nr2_root, winslash = "/", mustWork = FALSE))
-  ),
-  con = file.path(nr2_base, "LATEST_RUN.txt")
-)
-
-manifest_path <- file.path(nr2_root, "manifest.txt")
-
-step_root <- file.path(nr2_root, "03_scc")
-step_fig_dir <- file.path(step_root, "figures")
-step_tab_dir <- file.path(step_root, "tables")
-
-dir.create(step_root, recursive = TRUE, showWarnings = FALSE)
-dir.create(step_fig_dir, recursive = TRUE, showWarnings = FALSE)
-dir.create(step_tab_dir, recursive = TRUE, showWarnings = FALSE)
-
-writeLines(
-  c(
-    "Latest outputs for 03_calculate_social_discount_rates.R (Nature Revision 2)",
-    paste0("run_id: ", nr2_run_id),
-    paste0("outputs: ", normalizePath(step_root, winslash = "/", mustWork = FALSE))
-  ),
-  con = file.path(step_root, "LATEST_RUN.txt")
-)
+step_root <- paths$root
+step_fig_dir <- paths$figures
+step_tab_dir <- paths$tables
 
 discount_rates = c(0.02,0.04, 0.06)
 n_years<-60
@@ -69,18 +30,6 @@ marginal_damage_exponent<-1
 
 venmans_path <- file.path("Inputs", "Venmans_Value of an offset 25_1evening.csv")
 stopifnot(file.exists(venmans_path))
-
-cat(
-  paste0(
-    "\n[", format(Sys.time(), "%Y-%m-%d %H:%M:%S"), "] ",
-    "03_calculate_social_discount_rates.R\n",
-    "  input_venmans_csv: ", normalizePath(venmans_path, winslash = "/", mustWork = FALSE), "\n",
-    "  output_table: ", normalizePath(file.path(step_tab_dir, "scc_dr_2_4_6.csv"), winslash = "/", mustWork = FALSE), "\n",
-    "  output_figure: ", normalizePath(file.path(step_fig_dir, "scc_timeseries.png"), winslash = "/", mustWork = FALSE), "\n"
-  ),
-  file = manifest_path,
-  append = TRUE
-)
 
 rcps<-read_csv(venmans_path, skip = 2, col_types = 'd') %>%
   slice(-(1)) %>%

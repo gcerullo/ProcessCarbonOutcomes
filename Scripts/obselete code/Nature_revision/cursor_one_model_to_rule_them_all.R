@@ -1,8 +1,8 @@
-# Nature Revision 2 version of: 01_02_one_model_to_rule_them_all.R
+# Cursor version of: 01_02_one_model_to_rule_them_all.R
 # Purpose:
-# - Data prep → prior predictive checks → fit model → posterior predictive checks → simple trajectory plots
-# - Weakly informative priors calibrated from ecological assumptions
-# - Write all outputs under Outputs/Nature_Revision_Outputs/NR2/current/ (no CursorOutputs/CursorModels)
+# - Keep your existing workflow (data prep → prior predictive checks → fit model → export draws)
+# - Add a practical "prior calibration" workflow so priors are weakly informative and ecologically sensible
+# - Write *all* outputs into dedicated Cursor folders (no overwrites of your existing Outputs/ or Models/)
 
 # ============================================================
 # 0) LIBRARIES + OUTPUT LOCATIONS (Nature Revision Outputs)
@@ -23,16 +23,16 @@ set.seed(123)
 # - Set RUN_JOINT_MODEL = FALSE while tuning priors
 # - Iterate until prior predictive plots/diagnostics look sensible
 # - Then set RUN_JOINT_MODEL = TRUE and RUN_EXPORT_DRAWS = TRUE
-# RUN_PRIOR_ONY <- TRUE
-# RUN_JOINT_MODEL <- TRUE
-# RUN_EXPORT_DRAWS <- FALSE
-# RUN_PLOT_TRAJECTORIES <- TRUE
+RUN_PRIOR_ONLY <- TRUE
+RUN_JOINT_MODEL <- TRUE
+RUN_EXPORT_DRAWS <- TRUE
+RUN_PLOT_TRAJECTORIES <- TRUE
 
 # Faster defaults for prior-only runs (enough for stable plots)
-# CHAINS_PRIOR <- 2
-# ITER_PRIOR <- 1500
-# WARMUP_PRIOR <- 500
-# CORES_PRIOR <- 2
+CHAINS_PRIOR <- 2
+ITER_PRIOR <- 1500
+WARMUP_PRIOR <- 500
+CORES_PRIOR <- 2
 
 # More expensive settings for the actual fitted model
 CHAINS_FIT <- 4
@@ -40,21 +40,40 @@ ITER_FIT <- 6000
 WARMUP_FIT <- 2000
 CORES_FIT <- 4
 
-# ============================================================
-# 0c) OUTPUT LOCATIONS (simple, deterministic)
-# ============================================================
+run_id <- format(Sys.time(), "%Y-%m-%d_%H%M%S")
+nr_out_base <- file.path("Outputs", "Nature_Revision_Outputs", "one_model_to_rule_them_all")
+nr_out_root <- file.path(nr_out_base, run_id)
+nr_model_root <- file.path(nr_out_root, "models")
+nr_fig_dir <- file.path(nr_out_root, "figures")
+nr_tab_dir <- file.path(nr_out_root, "tables")
+nr_rds_dir <- file.path(nr_out_root, "rds")
 
-source(file.path("Scripts", "Nature_Revision_2", "_config.R"))
-paths <- nr2_step_paths("01_one_model", include_models = TRUE)
-nr2_ensure_dirs(paths)
+dir.create(nr_out_root, recursive = TRUE, showWarnings = FALSE)
+dir.create(nr_model_root, recursive = TRUE, showWarnings = FALSE)
+dir.create(nr_fig_dir, recursive = TRUE, showWarnings = FALSE)
+dir.create(nr_tab_dir, recursive = TRUE, showWarnings = FALSE)
+dir.create(nr_rds_dir, recursive = TRUE, showWarnings = FALSE)
 
-step_root <- paths$root
-nr_model_root <- paths$models
-nr_fig_dir <- paths$figures
-nr_tab_dir <- paths$tables
-nr_rds_dir <- paths$rds
+writeLines(
+  c(
+    paste0("Latest run for cursor_one_model_to_rule_them_all.R (Nature Revision 2)"),
+    paste0("run_id: ", run_id),
+    paste0("outputs: ", normalizePath(nr_out_root, winslash = "/", mustWork = FALSE)),
+    paste0("models: ", normalizePath(nr_model_root, winslash = "/", mustWork = FALSE))
+  ),
+  con = file.path(nr_out_base, "LATEST_RUN.txt")
+)
 
-writeLines(capture.output(sessionInfo()), con = file.path(step_root, "sessionInfo.txt"))
+writeLines(
+  c(
+    paste0("run_id: ", run_id),
+    paste0("wd: ", getwd()),
+    paste0("cmdstanr_version: ", as.character(utils::packageVersion("cmdstanr"))),
+    paste0("brms_version: ", as.character(utils::packageVersion("brms"))),
+    capture.output(sessionInfo())
+  ),
+  con = file.path(nr_out_root, "sessionInfo.txt")
+)
 
 # ============================================================
 # 1) PREPARE PLANTATION DATA
@@ -162,8 +181,22 @@ normal_from_95 <- function(mean, lower, upper) {
   list(mean = mean, sd = sd_from_95(lower, upper))
 }
 
+# NOTE:
 # We use a truncated Gaussian likelihood (lb = 0) to enforce a hard zero on ACD,
 # while keeping a linear-in-time mean structure on the original scale.
+# Her are my stated assumptions (encoded as *plausible 95% bounds*).
+# These are meant to be weakly informative: wide enough for learning, narrow enough to avoid nonsense.
+#
+# Parameterization used in this Cursor script:
+# - We fit state-specific *absolute* intercepts using `0 + state`.
+#   That means:
+#     b_stateonce_logged  is the expected ACD for once_logged at time = 0
+#     b_stateprimary      is the expected ACD for primary at time = 0
+#   This avoids the "variance inflation" that occurs when specifying priors as
+#   `primary + offset` (where uncertainties add).
+# - We fit state-specific slopes using `0 + state:time`.
+# - Primary has only time = 0 observations, so `stateprimary:time` is not identified
+#   by data; give it a proper, tight prior centered near 0.
 assumptions <- list(
   # Absolute ACD at time = 0 by state
   primary_acd_t0 = list(mean = 200, lower95 = 100, upper95 = 300),
@@ -285,124 +318,124 @@ write.csv(
 # ============================================================
 # 5) PRIOR PREDICTIVE CHECKS (calibrated priors)
 # ============================================================
-# 
-# #if (RUN_PRIOR_ONLY) {
-#   prior_only_model <- brm(
-#     bf(
-#       ACD | trunc(lb = 0) ~ 0 +
-#         state +
-#         0 + state:time +
-#         (1 | plot_state),
-#       sigma ~ 0 + state,
-#       center = FALSE
-#     ),
-#     data = all_data,
-#     family = gaussian(),
-#     prior = priors_calibrated,
-#     sample_prior = "only",
-#     chains = CHAINS_PRIOR,
-#     iter = ITER_PRIOR,
-#     warmup = WARMUP_PRIOR,
-#     cores = CORES_PRIOR,
-#     backend = "cmdstanr",
-#     seed = 123
-#   )
-# 
-#   saveRDS(prior_only_model, file.path(nr_model_root, "prior_only_model.rds"))
-# 
-#   # Basic prior predictive distribution
-#   yrep <- posterior_predict(prior_only_model, ndraws = 200)
-#   keep <- which(rowSums(is.na(yrep)) == 0)
-#   yrep_ok <- yrep[keep, , drop = FALSE]
-#   if (nrow(yrep_ok) >= 5) {
-#     pdf(file.path(nr_fig_dir, "prior_pp_check_density.pdf"), width = 8, height = 6)
-#     show_n <- min(50, nrow(yrep_ok))
-#     print(bayesplot::ppc_dens_overlay(y = all_data$ACD, yrep = yrep_ok[seq_len(show_n), ]))
-#     dev.off()
-#   }
-#   write.csv(
-#     tibble::tibble(
-#       ndraws_requested = 200,
-#       ndraws_kept = nrow(yrep_ok),
-#       ndraws_dropped_due_to_NA = nrow(yrep) - nrow(yrep_ok)
-#     ),
-#     file = file.path(nr_tab_dir, "prior_predictive_yrep_NA_diagnostics.csv"),
-#     row.names = FALSE
-#   )
-# 
-#   prior_draws <- prior_only_model %>%
-#     add_epred_draws(
-#       newdata = prediction_grid,
-#       re_formula = NA,
-#       ndraws = 500
-#     ) %>%
-#     filter(is.finite(.epred))
-# 
-#   # Trajectories plot
-#   p_prior_traj <- ggplot(prior_draws, aes(x = time, y = .epred, group = .draw)) +
-#     geom_line(alpha = 0.04) +
-#     facet_wrap(~ state) +
-#     theme_minimal() +
-#     coord_cartesian(ylim = c(-50, 450)) +
-#     labs(
-#       y = "Simulated ACD (Mg C ha^-1)",
-#       x = "Years",
-#       title = "Prior predictive trajectories (calibrated priors)"
-#     )
-# 
-#   ggsave(
-#     filename = file.path(nr_fig_dir, "prior_predictive_trajectories.png"),
-#     plot = p_prior_traj,
-#     width = 12,
-#     height = 7,
-#     units = "in",
-#     dpi = 200
-#   )
-# 
-#   # Starting carbon distributions
-#   p_prior_t0 <- prior_draws %>%
-#     filter(time == 0) %>%
-#     ggplot(aes(x = .epred)) +
-#     geom_density(fill = "grey80") +
-#     facet_wrap(~ state, scales = "free") +
-#     theme_minimal() +
-#     labs(
-#       x = "ACD at time = 0",
-#       title = "Prior predictive initial ACD by state"
-#     )
-# 
-#   ggsave(
-#     filename = file.path(nr_fig_dir, "prior_predictive_initial_ACD.png"),
-#     plot = p_prior_t0,
-#     width = 12,
-#     height = 7,
-#     units = "in",
-#     dpi = 200
-#   )
-# 
-#   # Quantitative prior diagnostics (helps detect dominating or nonsensical priors)
-#   prior_diag <- prior_draws %>%
-#     mutate(flag_negative = .epred < 0, flag_too_high = .epred > 400) %>%
-#     group_by(state, time) %>%
-#     summarise(
-#       mean = mean(.epred, na.rm = TRUE),
-#       p02_5 = quantile(.epred, 0.025, na.rm = TRUE),
-#       p50 = quantile(.epred, 0.5, na.rm = TRUE),
-#       p97_5 = quantile(.epred, 0.975, na.rm = TRUE),
-#       pr_negative = mean(flag_negative, na.rm = TRUE),
-#       pr_gt400 = mean(flag_too_high, na.rm = TRUE),
-#       .groups = "drop"
-#     ) %>%
-#     filter(time %in% c(0, 10, 25, 50, 75))
-# 
-#   write.csv(prior_diag, file.path(nr_tab_dir, "prior_predictive_diagnostics.csv"), row.names = FALSE)
-# #}
+
+if (RUN_PRIOR_ONLY) {
+  prior_only_model <- brm(
+    bf(
+      ACD | trunc(lb = 0) ~ 0 +
+        state +
+        0 + state:time +
+        (1 | plot_state),
+      sigma ~ 0 + state,
+      center = FALSE
+    ),
+    data = all_data,
+    family = gaussian(),
+    prior = priors_calibrated,
+    sample_prior = "only",
+    chains = CHAINS_PRIOR,
+    iter = ITER_PRIOR,
+    warmup = WARMUP_PRIOR,
+    cores = CORES_PRIOR,
+    backend = "cmdstanr",
+    seed = 123
+  )
+
+  saveRDS(prior_only_model, file.path(nr_model_root, "prior_only_model.rds"))
+
+  # Basic prior predictive distribution
+  yrep <- posterior_predict(prior_only_model, ndraws = 200)
+  keep <- which(rowSums(is.na(yrep)) == 0)
+  yrep_ok <- yrep[keep, , drop = FALSE]
+  if (nrow(yrep_ok) >= 5) {
+    pdf(file.path(nr_fig_dir, "prior_pp_check_density.pdf"), width = 8, height = 6)
+    show_n <- min(50, nrow(yrep_ok))
+    print(bayesplot::ppc_dens_overlay(y = all_data$ACD, yrep = yrep_ok[seq_len(show_n), ]))
+    dev.off()
+  }
+  write.csv(
+    tibble::tibble(
+      ndraws_requested = 200,
+      ndraws_kept = nrow(yrep_ok),
+      ndraws_dropped_due_to_NA = nrow(yrep) - nrow(yrep_ok)
+    ),
+    file = file.path(nr_tab_dir, "prior_predictive_yrep_NA_diagnostics.csv"),
+    row.names = FALSE
+  )
+
+  prior_draws <- prior_only_model %>%
+    add_epred_draws(
+      newdata = prediction_grid,
+      re_formula = NA,
+      ndraws = 500
+  ) %>%
+  filter(is.finite(.epred))
+
+  # Trajectories plot
+  p_prior_traj <- ggplot(prior_draws, aes(x = time, y = .epred, group = .draw)) +
+    geom_line(alpha = 0.04) +
+    facet_wrap(~ state) +
+    theme_minimal() +
+    coord_cartesian(ylim = c(-50, 450)) +
+    labs(
+      y = "Simulated ACD (Mg C ha^-1)",
+      x = "Years",
+      title = "Prior predictive trajectories (calibrated priors)"
+    )
+
+  ggsave(
+    filename = file.path(nr_fig_dir, "prior_predictive_trajectories.png"),
+    plot = p_prior_traj,
+    width = 12,
+    height = 7,
+    units = "in",
+    dpi = 200
+  )
+
+  # Starting carbon distributions
+  p_prior_t0 <- prior_draws %>%
+    filter(time == 0) %>%
+    ggplot(aes(x = .epred)) +
+    geom_density(fill = "grey80") +
+    facet_wrap(~ state, scales = "free") +
+    theme_minimal() +
+    labs(
+      x = "ACD at time = 0",
+      title = "Prior predictive initial ACD by state"
+    )
+
+  ggsave(
+    filename = file.path(nr_fig_dir, "prior_predictive_initial_ACD.png"),
+    plot = p_prior_t0,
+    width = 12,
+    height = 7,
+    units = "in",
+    dpi = 200
+  )
+
+  # Quantitative prior diagnostics (helps detect dominating or nonsensical priors)
+  prior_diag <- prior_draws %>%
+  mutate(flag_negative = .epred < 0, flag_too_high = .epred > 400) %>%
+    group_by(state, time) %>%
+    summarise(
+    mean = mean(.epred, na.rm = TRUE),
+    p02_5 = quantile(.epred, 0.025, na.rm = TRUE),
+    p50 = quantile(.epred, 0.5, na.rm = TRUE),
+    p97_5 = quantile(.epred, 0.975, na.rm = TRUE),
+    pr_negative = mean(flag_negative, na.rm = TRUE),
+    pr_gt400 = mean(flag_too_high, na.rm = TRUE),
+      .groups = "drop"
+    ) %>%
+    filter(time %in% c(0, 10, 25, 50, 75))
+
+  write.csv(prior_diag, file.path(nr_tab_dir, "prior_predictive_diagnostics.csv"), row.names = FALSE)
+}
 
 # ============================================================
-# 6) FIT THE MODEL
+# 6) FIT THE MODEL (same structure as your v1, but with calibrated priors)
 # ============================================================
 
-#if (RUN_JOINT_MODEL) {
+if (RUN_JOINT_MODEL) {
   joint_model <- brm(
     bf(
       ACD | trunc(lb = 0) ~ 0 +
@@ -426,7 +459,7 @@ write.csv(
 
   saveRDS(joint_model, file.path(nr_model_root, "unified_linear_carbon_model.rds"))
 
-  # Posterior predictive checks by state
+  # Posterior predictive checks by state (saved to Cursor folder)
   states <- levels(all_data$state)
   pdf(file.path(nr_fig_dir, "posterior_pp_checks_by_state.pdf"), width = 8, height = 6)
   for (s in states) {
@@ -455,13 +488,13 @@ write.csv(
     print(p5 + ggtitle(paste("Predicted SDs -", s)))
   }
   dev.off()
-#}
+}
 
 # ============================================================
 # 6b) STRAIGHTFORWARD TRAJECTORY PLOTS (posterior epred vs time)
 # ============================================================
 
-#if (RUN_JOINT_MODEL && RUN_PLOT_TRAJECTORIES) {
+if (RUN_JOINT_MODEL && RUN_PLOT_TRAJECTORIES) {
   # For logged/restored, you project to 75y; for plantations you care about 0–12y.
   states <- levels(all_data$state)
   time_max_by_state <- tibble::tibble(
@@ -549,16 +582,16 @@ write.csv(
     units = "in",
     dpi = 220
   )
-#}
+}
 
 # ============================================================
-# 7) EXPORT DRAWS FOR DOWNSTREAM SCRIPTS
+# 7) EXPORT DRAWS FOR DOWNSTREAM SCRIPTS (Cursor-isolated)
 # ============================================================
 
-#if (RUN_EXPORT_DRAWS) {
-#  if (!RUN_JOINT_MODEL) {
-#    stop("RUN_EXPORT_DRAWS = TRUE requires RUN_JOINT_MODEL = TRUE.")
-#  }
+if (RUN_EXPORT_DRAWS) {
+  if (!RUN_JOINT_MODEL) {
+    stop("RUN_EXPORT_DRAWS = TRUE requires RUN_JOINT_MODEL = TRUE.")
+  }
 
   newdata <- expand.grid(
     time = 0:75,
@@ -591,5 +624,5 @@ write.csv(
 
   saveRDS(draws_long, file.path(nr_rds_dir, "onemodel_ACD_draws.rds"))
   write.csv(draws_long, file.path(nr_rds_dir, "onemodel_ACD_draws.csv"), row.names = FALSE)
-#}
+}
 

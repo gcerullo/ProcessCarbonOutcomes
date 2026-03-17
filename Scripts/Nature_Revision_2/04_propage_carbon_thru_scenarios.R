@@ -35,44 +35,17 @@ library(tidyverse)
 library(data.table)
 
 # ============================================================
-# Nature Revision 2 run root (single-folder replicability)
+# OUTPUT LOCATIONS (simple, deterministic)
 # ============================================================
 
-nr2_run_id <- Sys.getenv("NR2_RUN_ID")
-if (identical(nr2_run_id, "")) nr2_run_id <- format(Sys.time(), "%Y-%m-%d_%H%M%S")
+source(file.path("Scripts", "Nature_Revision_2", "_config.R"))
+paths <- nr2_step_paths("04_propagate")
+nr2_ensure_dirs(paths)
 
-nr2_base <- file.path("Outputs", "Nature_Revision_Outputs", "Nature_Revision_2")
-nr2_root <- file.path(nr2_base, nr2_run_id)
-
-# Update overall NR2 latest-run pointer (safe to overwrite)
-dir.create(nr2_root, recursive = TRUE, showWarnings = FALSE)
-writeLines(
-  c(
-    "Latest Nature Revision 2 run",
-    paste0("run_id: ", nr2_run_id),
-    paste0("run_root: ", normalizePath(nr2_root, winslash = "/", mustWork = FALSE))
-  ),
-  con = file.path(nr2_base, "LATEST_RUN.txt")
-)
-
-step_root <- file.path(nr2_root, "04_propagate_carbon_thru_scenarios")
-step_fig_dir <- file.path(step_root, "figures")
-step_tab_dir <- file.path(step_root, "tables")
-step_rds_dir <- file.path(step_root, "rds")
-
-dir.create(step_root, recursive = TRUE, showWarnings = FALSE)
-dir.create(step_fig_dir, recursive = TRUE, showWarnings = FALSE)
-dir.create(step_tab_dir, recursive = TRUE, showWarnings = FALSE)
-dir.create(step_rds_dir, recursive = TRUE, showWarnings = FALSE)
-
-writeLines(
-  c(
-    "Latest outputs for 04_propage_carbon_thru_scenarios.R (Nature Revision 2)",
-    paste0("run_id: ", nr2_run_id),
-    paste0("outputs: ", normalizePath(step_root, winslash = "/", mustWork = FALSE))
-  ),
-  con = file.path(step_root, "LATEST_RUN.txt")
-)
+step_root <- paths$root
+step_fig_dir <- paths$figures
+step_tab_dir <- paths$tables
+step_rds_dir <- paths$rds
 
 #___________________________
 #hardcoded decision
@@ -86,7 +59,9 @@ twice_logged_slope_trajectory = 1
 #Inputs 
 #___________________________
 #Inputs params including the makeup of starting landscapes
-source('Inputs/FixedScenarioParmams.R')
+fixed_scenario_params_path <- file.path("Inputs", "FixedScenarioParmams.R")
+stopifnot(file.exists(fixed_scenario_params_path))
+source(fixed_scenario_params_path)
 all_start_landscape <- all_start_landscape %>%  
   mutate(functional_habitat = habitat) %>%  
   mutate(
@@ -110,11 +85,7 @@ all_start_landscape<- all_start_landscape %>%
 
 #social discount rate caluclate for 2,4,6% 
 #built in the CalculateSocialDiscountRates.R script 
-socialDR_path <- file.path(nr2_root, "03_social_discount_rates", "tables", "SocialDiscountRates_2_4_6pc_DR.csv")
-if (!file.exists(socialDR_path)) {
-  # fallback to legacy location if running outside NR2 run root
-  socialDR_path <- file.path("Outputs", "SocialDiscountRates_2_4_6pc_DR.csv")
-}
+socialDR_path <- file.path(nr2_out_root, "03_scc", "tables", "scc_dr_2_4_6.csv")
 stopifnot(file.exists(socialDR_path))
 
 socialDR <- read.csv(socialDR_path) %>% 
@@ -164,11 +135,7 @@ scenario_row_order_visualisation_fun <- function(x){
 
 # A SINGLE VERSION 
 
-all_draws_path <- file.path(nr2_root, "02_prepare_draws", "rds", "one_model_abovegroundcarbon_outcome_draws.rds")
-if (!file.exists(all_draws_path)) {
-  # fallback to legacy location if running outside NR2 run root
-  all_draws_path <- file.path("Outputs", "one_model_abovegroundcarbon_outcome_draws.rds")
-}
+all_draws_path <- file.path(nr2_out_root, "02_draws", "rds", "acdraws_aboveground.rds")
 stopifnot(file.exists(all_draws_path))
 
 all_draws <- readRDS(all_draws_path) %>%  

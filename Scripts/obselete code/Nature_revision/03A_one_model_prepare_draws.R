@@ -176,8 +176,7 @@ plot(twice_starting_ACD$ACD_2L_start_30yrAfter1L)
 
 # --- expand twice-logged draws across slope scenarios]
 
-# COME BACK HERE - TO WHERE THE PROBLEM IS STARTING
-ACD_twice_draws <- twice_starting_ACD %>%
+CD_twice_draws <- twice_starting_ACD %>%
   left_join(slopes_once_logged, by = "draw") %>%
   tidyr::expand_grid(
     functionalhabAge = years,
@@ -253,7 +252,7 @@ twice_logged_plot <-ACD_twice_summary %>%
     title = "Twice-logged recovery trajectories with different slopes"
   )
 
-cowplot::plot_grid(p_1l_r_plot, twice_logged_plot)
+cowplot::plot_grid(quick_plot, twice_logged_plot)
 
 #_______________________________________________________________________________
 #transition rules 
@@ -311,6 +310,179 @@ ACD_twice_long <- ACD_twice_long %>%
 
 #combine once-logged, primary, twice-logged and restored and plantation
 final_ACD_draws <- draws_long  %>% rbind(ACD_twice_long)
+
+head(final_ACD_draws)
+
+#Build a plot of above ground carbon dynamics through times
+unique(final_ACD_draws$habitat)
+head(final_ACD_draws)
+final_ACD_summary <- final_ACD_draws %>% group_by(habitat, slope_factor,functionalhabAge, start_age) %>% 
+  summarise(
+    mean_ACD = mean(ACD),
+    lwr_ACD  = quantile(ACD, 0.025),
+    upr_ACD  = quantile(ACD, 0.975),
+    .groups = "drop"
+  ) %>%  
+  filter(habitat != "twice_logged_start")
+
+#make carbon through time plot #####
+p_1_r <- final_ACD_summary %>% 
+  filter(habitat %in% c("primary", "once_logged", "restored"))
+unique(p_1_r$habitat)
+
+# Get full age range used in other habitats
+age_range <- range(p_1_r$functionalhabAge, na.rm = TRUE)
+
+primary_expanded <- p_1_r %>%
+  filter(habitat == "primary") %>%
+  select(-functionalhabAge) %>%   # remove the existing column
+  crossing(functionalhabAge = seq(age_range[1], age_range[2]))
+
+p_1_r <- bind_rows(
+  p_1_r %>% filter(habitat != "primary"),
+  primary_expanded
+)
+
+
+
+
+tl <-final_ACD_summary %>% filter(habitat == "twice-logged")
+pl <- final_ACD_summary %>% filter(habitat%in% c("eucalyptus_current", "albizia_current"))
+
+
+# p_1_plot %>% group_by(habitat) %>%   ggplot(aes(x = functionalhabAge, y = mean_ACD,
+#            color = slope_factor, fill = habitat)) +
+#   geom_ribbon(aes(ymin = lwr_ACD, ymax = upr_ACD), alpha = 0.2, color = NA) +
+#   geom_line(linewidth = 1.2) +
+#   facet_grid(start_age ~ slope_factor) +
+#   
+#   # facet_wrap(~start_age, ncol = 1, scales = "free_y") +
+#   theme_minimal(base_size = 14) +
+#   labs(
+#     x = "Years Since Logging",
+#     y = "Aboveground Carbon Density (ACD)",
+#     color = "Habitat",
+#     title = "Primary, Once-logged and Restored trajectories"
+#   ) + 
+#   xlim(0,60)
+
+p_1_r_plot <- p_1_r %>% 
+  ggplot(aes(x = functionalhabAge,
+             y = mean_ACD,
+             colour = habitat,
+             linetype = habitat,
+             group = habitat)) +
+  
+  geom_ribbon(aes(ymin = lwr_ACD, ymax = upr_ACD),
+              fill = "grey70",
+              alpha = 0.25,
+              colour = NA) +
+  
+  geom_line(linewidth = 1.1) +
+  
+  scale_colour_grey(start = 0.2, end = 0.6) +
+  
+  theme_minimal(base_size = 14) +
+  theme(
+    panel.grid = element_blank(),
+    axis.line = element_line(colour = "black"),
+    strip.text = element_text(face = "bold"),
+    legend.position = "top",
+    legend.title = element_blank()
+    
+  ) +
+  
+  labs(
+    x = "Years Since Logging",
+    y = "Aboveground Carbon Density (ACD)",
+    colour = "Habitat",
+    linetype = "Habitat",
+    title = "Primary, Once-logged and Restored trajectories"
+  ) +
+  
+  coord_cartesian(xlim = c(0,60))
+
+
+pl_plot <- pl %>%  
+  ggplot(aes(x = functionalhabAge,
+             y = mean_ACD,
+             colour = habitat,
+             linetype = habitat,
+             group = habitat)) +
+  
+  geom_ribbon(aes(ymin = lwr_ACD, ymax = upr_ACD),
+              fill = "grey70",
+              alpha = 0.25,
+              colour = NA) +
+  
+  geom_line(linewidth = 1.1) +
+  
+  scale_colour_grey(start = 0.2, end = 0.6) +
+  
+  theme_minimal(base_size = 14) +
+  theme(
+    panel.grid = element_blank(),
+    axis.line = element_line(colour = "black"),
+    strip.text = element_text(face = "bold"),
+    legend.position = "top", 
+    legend.title = element_blank()
+  ) +
+  
+  labs(
+    x = "Years Since Logging",
+    y = "Aboveground Carbon Density (ACD)",
+    colour = "Habitat",
+    linetype = "Habitat",
+    title = "Plantation trajectories"
+  ) +
+  xlim(0,12)+
+  coord_cartesian(xlim = c(0,12))+
+  ylim(0,250)
+
+tl_plot <- tl %>%  
+  ggplot(aes(x = functionalhabAge,
+             y = mean_ACD,
+             colour = slope_factor,
+             linetype = habitat,
+             group = habitat)) +
+  
+  geom_ribbon(aes(ymin = lwr_ACD, ymax = upr_ACD),
+              fill = "grey70",
+              alpha = 0.25,
+              colour = NA) +
+  
+  geom_line(linewidth = 1.1) +
+  
+  scale_colour_grey(start = 0.2, end = 0.6) +
+  
+  theme_minimal(base_size = 14) +
+  facet_wrap(~slope_factor)+
+  theme(
+    panel.grid = element_blank(),
+    axis.line = element_line(colour = "black"),
+    strip.text = element_text(face = "bold"),
+    legend.position = "none"
+  ) +
+  
+  labs(
+    x = "Years Since Logging",
+    y = "Aboveground Carbon Density (ACD)",
+    colour = "Habitat",
+    linetype = "Habitat",
+    title = "Interpolated twice-logged trajectories
+    with different slope assumptions"
+  ) +
+  xlim(0,60)+
+  coord_cartesian(xlim = c(0,60))
+
+log_plant <- cowplot::plot_grid(p_1_r_plot,pl_plot )
+final_carbon_curve_fig <- cowplot::plot_grid(log_plant, tl_plot, ncol = 1)
+ggsave("figures/all_carbon_curves.png", final_carbon_curve_fig, units="mm", height=297, width=220)
+
+
+#validate how this looks compared to LiDAR data
+
+
 
 # 
 # #______________________________________________________________

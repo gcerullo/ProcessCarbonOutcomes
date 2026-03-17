@@ -117,7 +117,14 @@ scenario_row_order_visualisation_fun <- function(x){
 
 # A SINGLE VERSION 
 
-all_draws <- readRDS("Outputs/one_model_abovegroundcarbon_outcome_draws.rds")
+all_draws <- readRDS("Outputs/one_model_abovegroundcarbon_outcome_draws.rds") %>%  
+  mutate(
+    habitat = if_else(
+      habitat == "once_logged",
+      "once-logged",
+      habitat
+    )
+  )
 #_______________________________________________________________________________
 #transition rules 
 #_______________________________________________________________________________
@@ -156,18 +163,18 @@ filter_original_eq_habitat <- function(df_list) {
 #_______________________________________
 # Takes a list of data frames and applies two operations to each:
 # (1) If both `original_habitat` and `functional_habitat` are "once_logged",
-#     change `functional_habitat` to "once_logged_start".
+#     change `functional_habitat` to "once_logged_start" - CHANGED; NOT SURE I NEED THIS 
 # (2) If `original_habitat` is "once_logged", remove rows where `harvest_delay > 15`.
 update_1L_functional_habitat <- function(df_list) {
   df_list %>%
-    map(~ .x %>%
-          mutate(
-            functional_habitat = if_else(
-              original_habitat == "once-logged" & functional_habitat == "once-logged",
-              "once-logged_start",
-              functional_habitat
-            )
-          ) %>%
+     map(~ .x %>%
+    #       mutate(
+    #         functional_habitat = if_else(
+    #           original_habitat == "once-logged" & functional_habitat == "once-logged",
+    #           "once-logged_start",
+    #           functional_habitat
+    #         )
+    #       ) %>%
           filter(!(original_habitat == "once-logged" & harvest_delay < 15))
     )
 }
@@ -184,7 +191,7 @@ update_2L_functional_habitat <- function(df_list) {
           mutate(
             functional_habitat = if_else(
               original_habitat == "twice-logged" & functional_habitat == "twice-logged",
-              "twice-logged_start",
+              "twice_logged_start",
               functional_habitat
             )
           ) %>%
@@ -202,7 +209,6 @@ remove_no_timber_scenarios <- function(df_list) {
     )
 }
 
-x <- scenarios[[1]]
 
 #make sure harvest delay is numeric
 scenarios <- scenarios %>%
@@ -217,6 +223,13 @@ scenarios <- scenarios %>%  update_1L_functional_habitat() %>%
 
 #convert to datatable format
 scenarios <- lapply(scenarios, as.data.table)
+
+#check we've got the correct functional habitat types for scenarios
+unique(scenarios[[1]]$original_habitat)
+unique(scenarios[[1]]$functional_habitat)
+unique(scenarios[[7]]$functional_habitat) #looks good for scenarios starting with twice-logged SL
+#check how this matches with the draws
+unique(all_draws$habitat)
 
 
 #_______________________________________________________
@@ -271,10 +284,25 @@ all_draws <- all_draws %>%
   select(-start_age) %>% 
   group_split(draw)     
 
-#convert to datatable
-all_draws <- lapply(all_draws, as.data.table)
 
+# RUN IMPORTANT CHECKS ####
+#Must ensure that draws and scenarios match properly in their naming structures
 
+#check naming for draws and scenarios
+unique(all_draws[[1]]$functional_habitat)
+
+unique(scenarios[[1]]$functional_habitat)
+unique(scenarios[[2]]$functional_habitat)
+unique(scenarios[[3]]$functional_habitat)
+unique(scenarios[[4]]$functional_habitat)
+unique(scenarios[[5]]$functional_habitat)
+unique(scenarios[[6]]$functional_habitat)
+unique(scenarios[[7]]$functional_habitat)
+unique(scenarios[[8]]$functional_habitat)
+unique(scenarios[[9]]$functional_habitat)
+unique(scenarios[[10]]$functional_habitat)
+unique(scenarios[[11]]$functional_habitat)
+unique(scenarios[[12]]$functional_habitat)
 #____________________________________________________________________________________________________________________________________
 #We are now ready to run the full workflow below
 # For each scenario set i, we extract the scenario schedule and sequentially apply the full workflow:
@@ -287,6 +315,7 @@ all_draws <- lapply(all_draws, as.data.table)
 # At the end of each iteration, the processed results for scenario i are stored in the list `posterior_summary_all[[i]]`,
 # containing SCC-discounted carbon impacts with uncertainty and cumulative carbon stock-years.
 #___________________________________________________________________________________________________________________________________
+all_draws <- lapply(all_draws, as.data.table)
 
 #make empty list to store results
 posterior_summary_all <- vector("list", length(scenarios))
@@ -304,14 +333,23 @@ for(i in seq_along(scenarios)) {
 
 
     #use all draws of the carbon estimates
-     draw <- all_draws
+    draw <- all_draws
 
 #__________________________________________
 #combine scenarios with carbon values
 #__________________________________________
 
 x <- scenario_i
-draw_dt <- draw[[1]]      
+# #for one sngle scenario
+# scenario_391 <- scenario_i %>%
+#   filter(index == "all_primary_CY_D.csv 391")
+# #x <- scenario_391
+# scenario_48144 <- scenario_i %>%
+#   filter(index == "48144")
+
+
+
+#draw_dt <- draw[[1]]      
 
 #function to add carbon estimates to scenario schedule
 add_carbon_fun <- function(x, draw_dt) {
@@ -349,8 +387,12 @@ add_carbon_fun <- function(x, draw_dt) {
 
 # Now apply the add carbon function for each posterior draw of the datatable list:
 # Apply add_carbon_fun() to each draw
+# scenario_391 <- lapply(draw, \(d) add_carbon_fun(scenario_391, d))
+# x391 <- scenario_391[[1]] %>% scenario_row_order_visualisation_fun()
+# x391_d18 <- x391 %>% filter(harvest_delay == 0)
+
 scenario_i <- lapply(draw, \(d) add_carbon_fun(scenario_i, d))
-#check <- scenario_i[[1]] %>% scenario_row_order_visualisation_fun()
+check <- scenario_i[[1]] %>% scenario_row_order_visualisation_fun()
 
 #________________________________________________________________
 # Calculate ACD per scenario year 
@@ -380,14 +422,14 @@ scenario_i <- lapply(scenario_i, calculate_delays_per_transition_fun)
 
 #check2 <- scenario_i[[19]] %>% scenario_row_order_visualisation_fun()
 #saveRDS(check, "Outputs/dusty_single_post_draw.rds")
-check2 <- scenario_i[[190]] %>% scenario_row_order_visualisation_fun()
-#saveRDS(check2, "Outputs/dusty_single_post_draw2.rds")
-m <- check %>% filter(original_habitat == "primary" & habitat == "primary")
-
-ok <- check %>% filter(index == "all_primary_CY_D.csv 258")
-ok2 <- check2 %>% filter(index == "all_primary_CY_D.csv 258")
-
-x <- scenario_i[[1]]
+# check2 <- scenario_i[[190]] %>% scenario_row_order_visualisation_fun()
+# #saveRDS(check2, "Outputs/dusty_single_post_draw2.rds")
+# m <- check %>% filter(original_habitat == "primary" & habitat == "primary")
+# 
+# ok <- check %>% filter(index == "all_primary_CY_D.csv 258")
+# ok2 <- check2 %>% filter(index == "all_primary_CY_D.csv 258")
+# 
+# x <- scenario_i[[1]]
 
 #####
 ####
@@ -530,8 +572,10 @@ f <- scenario_v[[100]]
 
 # Apply scenario_ACD_fun to all scenarios
 scenario_i <- lapply(scenario_i, scenario_ACD_fun)
-x <- scenario_i[[1]] %>% filter(index == "all_primary_CY_D.csv 391")
-y <- scenario_i[[200]] %>% filter(index == "all_primary_CY_D.csv 391")
+ww <- scenario_i[[1]] %>% scenario_row_order_visualisation_fun()
+x <- scenario_i[[1]] %>% filter(index == "all_primary_CY_D.csv 391") %>%   left_join(scenario_composition, by = c("index", "production_target","scenarioStart", "scenarioName"))
+
+y <- scenario_i[[350]] %>% filter(index == "all_primary_CY_D.csv 391")
 #CALCULATE CARBON STOCK YEARS ####
 #____________________________________________________________
 # Function: carbon_stock_years_fun
@@ -930,8 +974,6 @@ scenario_v <- join_scenario_with_start_ACD(
 #     totalSCC = sum(carbon_impact,na.rm = TRUE))
 
 
-
-
 ACD_change_function_dt <- function(dt) {
   
   # Ensure the input is a data.table 
@@ -959,6 +1001,7 @@ ACD_change_function_dt <- function(dt) {
     index,              # unique scenario identifier
     production_target,  # target production intensity for this scenario
     true_year,          # year of the scenario
+    scen_ACD_year,      # actual acd stock per year
     scen_ACD_change,    # annual change in aboveground carbon (scenario)
     SL_ACD_change,      # annual change in aboveground carbon (starting landscape)
     scenarioName,       # descriptive scenario name
@@ -1243,9 +1286,13 @@ posterior_summary_comb %>%
   facet_wrap(~discount_rate)+
   theme_minimal()
  names(posterior_summary_all2)
+ 
+
 
 #with cumalitive carbon stock years
-ggplot(posterior_summary_all2,
+posterior_summary_comb %>%  
+  left_join(scenario_composition, by = c("index", "production_target","scenarioStart", "scenarioName")) %>% 
+  ggplot(
        aes(x = production_target,
            y = mean_cum_stock_year,
            colour = propOG)) +

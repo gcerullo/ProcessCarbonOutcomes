@@ -15,76 +15,27 @@ set.seed(123)
 years <- 0:75
 
 # ============================================================
-# Nature Revision 2 run root (single-folder replicability)
+# OUTPUT LOCATIONS (simple, deterministic)
 # ============================================================
 
-nr2_run_id <- Sys.getenv("NR2_RUN_ID")
-if (identical(nr2_run_id, "")) {
-  nr2_latest <- file.path("Outputs", "Nature_Revision_Outputs", "NR2", "LATEST_RUN.txt")
-  if (file.exists(nr2_latest)) {
-    latest_lines <- readLines(nr2_latest, warn = FALSE)
-    rid <- sub("^run_id:\\s*", "", latest_lines[grepl("^run_id:", latest_lines)])
-    if (length(rid) == 1 && nzchar(rid)) {
-      nr2_run_id <- rid
-    }
-  }
-}
-if (identical(nr2_run_id, "")) nr2_run_id <- format(Sys.time(), "%Y-%m-%d_%H%M%S")
-
-# Keep NR2 outputs in a short path to avoid Windows path-length issues
-nr2_base <- file.path("Outputs", "Nature_Revision_Outputs", "NR2")
-nr2_root <- file.path(nr2_base, nr2_run_id)
-
-# Update overall NR2 latest-run pointer (safe to overwrite)
-dir.create(nr2_root, recursive = TRUE, showWarnings = FALSE)
-writeLines(
-  c(
-    "Latest Nature Revision 2 run",
-    paste0("run_id: ", nr2_run_id),
-    paste0("run_root: ", normalizePath(nr2_root, winslash = "/", mustWork = FALSE))
-  ),
-  con = file.path(nr2_base, "LATEST_RUN.txt")
-)
+source(file.path("Scripts", "Nature_Revision_2", "_config.R"))
+paths <- nr2_step_paths("02_draws")
+nr2_ensure_dirs(paths)
 
 # -----------------------------------------
-# Inputs: prefer Nature Revision 2 run root
+# Inputs: outputs of step 01
 # -----------------------------------------
-joint_model_path <- file.path(nr2_root, "01_one_model", "models", "unified_linear_carbon_model.rds")
-if (!file.exists(joint_model_path)) {
-  # Fallback: allow running this step without NR2_RUN_ID by using the one-model LATEST_RUN pointer
-  one_model_latest <- file.path("Outputs", "Nature_Revision_Outputs", "one_model_to_rule_them_all", "LATEST_RUN.txt")
-  stopifnot(file.exists(one_model_latest))
-  latest_lines <- readLines(one_model_latest, warn = FALSE)
-  one_model_out_root <- sub("^outputs:\\s*", "", latest_lines[grepl("^outputs:", latest_lines)])
-  stopifnot(length(one_model_out_root) == 1)
-  joint_model_path <- file.path(one_model_out_root, "models", "unified_linear_carbon_model.rds")
-}
+joint_model_path <- file.path(nr2_out_root, "01_one_model", "models", "unified_linear_carbon_model.rds")
 stopifnot(file.exists(joint_model_path))
 joint_model <- readRDS(joint_model_path)
 
 # -----------------------------------------
-# Outputs: Nature Revision 2 run root structure
+# Outputs
 # -----------------------------------------
-prep_out_base <- file.path(nr2_root, "02_draws")
-prep_out_root <- prep_out_base
-prep_fig_dir <- file.path(prep_out_root, "figures")
-prep_tab_dir <- file.path(prep_out_root, "tables")
-prep_rds_dir <- file.path(prep_out_root, "rds")
-
-dir.create(prep_out_root, recursive = TRUE, showWarnings = FALSE)
-dir.create(prep_fig_dir, recursive = TRUE, showWarnings = FALSE)
-dir.create(prep_tab_dir, recursive = TRUE, showWarnings = FALSE)
-dir.create(prep_rds_dir, recursive = TRUE, showWarnings = FALSE)
-
-writeLines(
-  c(
-    "Latest run for 02_prepare_draws.R (Nature Revision 2)",
-    paste0("run_id: ", nr2_run_id),
-    paste0("inputs_one_model_model_rds: ", normalizePath(joint_model_path, winslash = "/", mustWork = FALSE)),
-    paste0("outputs: ", normalizePath(prep_out_root, winslash = "/", mustWork = FALSE))
-  ),
-  con = file.path(prep_out_base, "LATEST_RUN.txt")
-)
+prep_out_root <- paths$root
+prep_fig_dir <- paths$figures
+prep_tab_dir <- paths$tables
+prep_rds_dir <- paths$rds
 
 # -----------------------------------------
 # Generate draws_long from fitted model output

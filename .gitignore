@@ -1,0 +1,22 @@
+.Rproj.user/
+.Rhistory
+.RData
+.Ruserdata
+.Renviron
+
+# Derived outputs (reproducible; do not commit)
+Outputs/
+CursorOutputs/
+Models/
+Figures/
+FinalPerformanceOutput/
+tmp_test/
+
+# Local scratch artifacts that sometimes end up in repo root
+/*.rds
+/*.pdf
+/Rplots.pdf
+/temporarytest.csv
+
+# CmdStan installations (if created locally)
+cmdstan*/
