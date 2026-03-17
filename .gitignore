@@ -12,6 +12,12 @@ Figures/
 FinalPerformanceOutput/
 tmp_test/
 
+# Data (do not commit to GitHub)
+Inputs/*
+RawData/*
+!Inputs/README.md
+!RawData/README.md
+
 # Local scratch artifacts that sometimes end up in repo root
 /*.rds
 /*.pdf
