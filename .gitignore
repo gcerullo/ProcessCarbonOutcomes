@@ -26,3 +26,7 @@ RawData/*
 
 # CmdStan installations (if created locally)
 cmdstan*/
+
+# renv (if you don't want to commit it)
+renv/
+.Rprofile

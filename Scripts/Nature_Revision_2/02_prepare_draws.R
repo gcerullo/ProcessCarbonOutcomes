@@ -93,6 +93,120 @@ dt[ACD > primary_ACD, ACD := primary_ACD]
 draws_long <- as_tibble(dt) %>%
   select(-primary_ACD)
 
+## ============================================================
+## CUSTOM: build `restored_start` functional habitat per draw
+## ============================================================
+##
+## Concept:
+## - Cohort A (28%): follows restored ACD for ages 0–30, then is harvested and
+##   resets to once-logged recovery starting at age 0 for true_year 31–75.
+## - Cohort B (72%): follows once-logged ACD for ages 0–75.
+## - `restored_start` ACD = 0.28 * cohortA + 0.72 * cohortB (per draw, per year).
+##
+## NOTE on the harvest "reset":
+## - We map once-logged age 0..44 onto true_year 31..75 (age0 at year31).
+
+weight_restored_cohort <- 0.285714286 #*percentage harvestable near roads (200/700) - the area of restored forest harvested
+weight_once_cohort <- 1-weight_restored_cohort # the area of un-enrichment planted forest that is left recovering as 1L
+age_restored_end <- 30
+reset_year <- 31
+
+hab_vals <- sort(unique(draws_long$habitat))
+once_name <- if ("once_logged" %in% hab_vals) "once_logged" else if ("once-logged" %in% hab_vals) "once-logged" else NA_character_
+rest_name <- if ("restored" %in% hab_vals) "restored" else NA_character_
+
+if (is.na(once_name)) stop("Could not find once-logged habitat in draws_long$habitat. Found: ", paste(hab_vals, collapse = ", "))
+if (is.na(rest_name)) stop("Could not find restored habitat in draws_long$habitat. Found: ", paste(hab_vals, collapse = ", "))
+
+rest_dt <- draws_long %>%
+  filter(habitat == rest_name) %>%
+  select(draw, functionalhabAge, ACD_restored = ACD)
+
+once_dt <- draws_long %>%
+  filter(habitat == once_name) %>%
+  select(draw, functionalhabAge, ACD_once = ACD)
+
+# Cohort A: restored ages 0..30
+cohortA_rest <- rest_dt %>%
+  filter(functionalhabAge %in% 0:age_restored_end) %>%
+  transmute(draw, functionalhabAge, ACD_A = ACD_restored)
+
+# Cohort A continuation: once-logged ages 0..44 mapped to years 31..75
+cohortA_once <- once_dt %>%
+  filter(functionalhabAge %in% 0:(max(years) - reset_year)) %>%
+  transmute(draw, functionalhabAge = functionalhabAge + reset_year, ACD_A = ACD_once)
+
+cohortA <- bind_rows(cohortA_rest, cohortA_once) %>%
+  filter(functionalhabAge %in% years)
+
+# Cohort B: once-logged ages 0..75
+cohortB <- once_dt %>%
+  filter(functionalhabAge %in% years) %>%
+  transmute(draw, functionalhabAge, ACD_B = ACD_once)
+
+# Combine cohorts
+restored_start <- cohortA %>%
+  left_join(cohortB, by = c("draw", "functionalhabAge")) %>%
+  mutate(
+    ACD = weight_restored_cohort * ACD_A + weight_once_cohort * ACD_B,
+    habitat = "restored_start"
+  ) %>%
+  select(draw, habitat, functionalhabAge, ACD)
+
+# Enforce the same per-draw primary plateau for restored_start
+primary_by_draw <- draws_long %>%
+  filter(habitat == "primary") %>%
+  group_by(draw) %>%
+  summarise(primary_ACD = mean(ACD, na.rm = TRUE), .groups = "drop")
+
+restored_start <- restored_start %>%
+  left_join(primary_by_draw, by = "draw") %>%
+  mutate(ACD = pmin(ACD, primary_ACD)) %>%
+  select(-primary_ACD)
+
+# Diagnostic plot (one draw): cohort A vs cohort B vs combined
+draw_plot_id <- sort(unique(draws_long$draw))[1]
+plot_df <- cohortA %>%
+  filter(draw == draw_plot_id) %>%
+  left_join(cohortB %>% filter(draw == draw_plot_id), by = c("draw", "functionalhabAge")) %>%
+  left_join(restored_start %>% filter(draw == draw_plot_id) %>% select(draw, functionalhabAge, ACD_comb = ACD),
+            by = c("draw", "functionalhabAge")) %>%
+  pivot_longer(
+    cols = c(ACD_A, ACD_B, ACD_comb),
+    names_to = "series",
+    values_to = "ACD"
+  ) %>%
+  mutate(series = recode(
+    series,
+    ACD_A = paste0("Cohort A: restored 0–", age_restored_end, " then once-logged"),
+    ACD_B = "Cohort B: once-logged 0–75",
+    ACD_comb = paste0("Combined: 0.28*A + 0.72*B (restored_start)")
+  ))
+
+p_restored_start <- ggplot(plot_df, aes(x = functionalhabAge, y = ACD, colour = series)) +
+  geom_line(linewidth = 1.0, alpha = 0.9, na.rm = TRUE) +
+  geom_vline(xintercept = age_restored_end, linetype = 2, colour = "grey40") +
+  geom_vline(xintercept = reset_year, linetype = 3, colour = "grey40") +
+  theme_minimal(base_size = 13) +
+  labs(
+    title = paste0("restored_start construction (one posterior draw: ", draw_plot_id, ")"),
+    subtitle = paste0("Cohort A uses restored 0–", age_restored_end, ", then resets to once-logged at year ", reset_year,
+                      "; Combined = 0.28*A + 0.72*B"),
+    x = "functionalhabAge (years)",
+    y = "ACD (Mg/ha)",
+    colour = NULL
+  )
+
+ggsave(
+  filename = file.path(prep_fig_dir, "restored_start__cohorts_and_combined__one_draw.png"),
+  plot = p_restored_start,
+  width = 9.5,
+  height = 5.5,
+  dpi = 220
+)
+
+
+
 
 # ------------------------------------------------
 # Summary  plot to visualise predictions
@@ -398,8 +512,6 @@ p_1_r <- bind_rows(
 )
 
 
-
-
 tl <-final_ACD_summary %>% filter(habitat == "twice-logged")
 pl <- final_ACD_summary %>% filter(habitat%in% c("eucalyptus_current", "albizia_current"))
 
@@ -540,8 +652,39 @@ ggsave(
 )
 
 
-#validate how this looks compared to LiDAR data
+# add *_start values to ACD long
 
+# Append restored_start into the final draws table (so downstream code treats it like any habitat)
+# IMPORTANT: give it slope_factor = 1 so it is retained when later scripts
+# filter to a single slope_factor trajectory.
+restored_start <- restored_start %>%
+  mutate(
+    slope_factor = factor("1", levels = as.character(slope_factors)),
+    start_age = NA
+  ) %>%
+  select(draw, habitat, functionalhabAge, ACD, slope_factor, start_age)
+
+
+#all restored start was planted at the same time as the once-logging (ie at t-15)
+restored_start <- restored_start %>%  
+  mutate(functionalhabAge = functionalhabAge - 15) %>%  
+  filter(functionalhabAge >-1)
+final_ACD_draws <- bind_rows(final_ACD_draws, restored_start)
+
+
+# Build once-logged_start from once-logged predictions:
+# same ACD draws, but shifted back by 15 years so scenario year 0 maps to
+# once-logged functional age 15.
+once_logged_start <- draws_long_bind %>%
+  filter(habitat %in% c("once_logged", "once-logged")) %>%
+  mutate(
+    habitat = "once-logged_start",
+    functionalhabAge = functionalhabAge - 15
+  ) %>%
+  filter(functionalhabAge > -1) %>%
+  select(draw, habitat, functionalhabAge, ACD, slope_factor, start_age)
+
+final_ACD_draws <- bind_rows(final_ACD_draws, once_logged_start)
 
 
 # 
@@ -676,5 +819,4 @@ ggsave(
 # save ACD draw (no below ground, and assuming different slope trajectories for twice logged forest)
 saveRDS(final_ACD_draws, file.path(prep_rds_dir, "acdraws_aboveground.rds"))
 
-write.csv(final_ACD_summary, file.path(prep_tab_dir, "acdraws_aboveground_summary.csv"), row.names = FALSE)
 

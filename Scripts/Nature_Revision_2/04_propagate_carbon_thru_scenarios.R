@@ -1,14 +1,10 @@
 # =============================================================================
-# Nature Revision 2 — Step 04 (TEMP refactor): propagate carbon through scenarios
+# Nature Revision 2 — Step 04: propagate carbon through scenarios
 # =============================================================================
 #
 # Purpose
-# - Clean, modular rewrite of `04_propage_carbon_thru_scenarios.R` for iterative development.
-# - Produces the same *type* of outputs, but is easier to test and reason about.
-#
-# Key features
-# - Deterministic outputs under: Outputs/Nature_Revision_Outputs/NR2/current/04_temp/
-# - TEST_MODE: run a small subset of scenario-sets (and optionally fewer posterior draws)
+# - Main script for propagating carbon through scenarios with posterior draws.
+# - Keeps the modular structure so each stage is easier to verify and maintain.
 #
 # NOTE ON COMMENTS
 # - You asked to keep the original narrative comments because they capture the rationale
@@ -32,31 +28,17 @@ if (!requireNamespace("biscale", quietly = TRUE)) {
 # =============================================================================
 
 source(file.path("Scripts", "Nature_Revision_2", "_config.R"))
-paths <- nr2_step_paths("04_temp")
+paths <- nr2_step_paths("04_propagate")
 nr2_ensure_dirs(paths)
 
-# Base folder for this temp step (shared across runs)
+# Base output folder for this step
 out_root <- paths$root
+fig_dir <- paths$figures
+tab_dir <- paths$tables
+rds_dir <- paths$rds
 
-# ---------------------------------
-# Per-run labelled output subfolder
-# ---------------------------------
-RUN_LABEL <- "d1"  # change this each time you want separate figures/outputs
-if (identical(RUN_LABEL, "") || is.null(RUN_LABEL)) {
-  RUN_LABEL <- format(Sys.time(), "%Y-%m-%d_%H%M%S")
-}
-
-run_root <- file.path(out_root, "runs", RUN_LABEL)
-fig_dir <- file.path(run_root, "figures")
-tab_dir <- file.path(run_root, "tables")
-rds_dir <- file.path(run_root, "rds")
-
-dir.create(run_root, recursive = TRUE, showWarnings = FALSE)
-dir.create(fig_dir, recursive = TRUE, showWarnings = FALSE)
-dir.create(tab_dir, recursive = TRUE, showWarnings = FALSE)
-dir.create(rds_dir, recursive = TRUE, showWarnings = FALSE)
-
-log_path <- file.path(run_root, "run_log.txt")
+log_path <- file.path(out_root, "run_log.txt")
+# Lightweight logger: mirror status to console and persistent run log.
 log_line <- function(...) {
   txt <- paste0("[", format(Sys.time(), "%Y-%m-%d %H:%M:%S"), "] ", paste0(..., collapse = ""))
   cat(txt, "\n", file = log_path, append = TRUE)
@@ -81,10 +63,13 @@ scenario_set_idxs <- seq(1,12)     # e.g. c(1, 5, 9). If NULL: auto (TEST_MODE) 
 limit_indices_per_set <- NULL    # e.g. 5 (keep first 5 unique index values)
 
 # Posterior draw subsetting (optional): use fewer draws for smoke tests
-max_draws <- 50                # e.g. 50 (keep first 50 draws)
+max_draws <- 200               # e.g. 50 (keep first 50 draws)
 
-# Twice-logged recovery trajectory choice (matches current script)
-twice_logged_slope_trajectory <- 1
+# Twice-logged recovery trajectory choice(s)
+# - Set to one value (e.g., 1) for a single run.
+# - Set multiple values (e.g., c(0.75, 1, 1.25)) for an outer loop.
+# - Set NULL to auto-run all slope_factor values present in ACD draws.
+twice_logged_slope_trajectories <- c(0.8, 1, 1.2)
 
 set.seed(123)
 
@@ -97,19 +82,19 @@ if (isTRUE(TEST_MODE)) {
 }
 
 log_line("TEST_MODE = ", TEST_MODE)
-log_line("RUN_LABEL = ", RUN_LABEL)
 log_line("scenario_set_idxs = ", paste(scenario_set_idxs %||% "ALL", collapse = ", "))
 log_line("limit_indices_per_set = ", limit_indices_per_set %||% "NULL")
 log_line("max_draws = ", max_draws %||% "NULL")
-log_line("twice_logged_slope_trajectory = ", twice_logged_slope_trajectory)
+log_line("twice_logged_slope_trajectories = ", paste(twice_logged_slope_trajectories %||% "AUTO", collapse = ", "))
 log_line("nr2_out_root = ", normalizePath(nr2_out_root, winslash = "/", mustWork = FALSE))
 log_line("USE_CACHE = ", USE_CACHE)
 
 cache_dir <- file.path(out_root, "cache")
 dir.create(cache_dir, recursive = TRUE, showWarnings = FALSE)
 cache_scenarios_prepped <- file.path(cache_dir, "scenarios_prepped.rds")
-cache_version <- "04_temp_scenarios_v1"
+cache_version <- "04_propagate_scenarios_v1"
 
+# Utility timer/logger so long stages report start/finish and runtime.
 time_it <- function(label, expr) {
   t0 <- Sys.time()
   log_line(label, " ...")
@@ -119,10 +104,19 @@ time_it <- function(label, expr) {
   out
 }
 
+# Filename-safe suffix to label outputs by 2L trajectory value.
+trajectory_file_suffix <- function(x) {
+  y <- as.character(x)
+  y <- gsub("[^A-Za-z0-9]+", "_", y)
+  y <- gsub("_+", "_", y)
+  y <- gsub("^_|_$", "", y)
+  paste0("2Ltraj_", y)
+}
+
 # =============================================================================
 # 1) INPUTS
 # =============================================================================
-#function for making sure we can visualise the order of scenarios correctly
+# Standard ordering helper so schedules are easier to inspect/debug.
 scenario_row_order_visualisation_fun <- function(x){
   x %>%  
     group_by(index, production_target, habitat, original_habitat, harvest_delay) %>%  
@@ -130,7 +124,7 @@ scenario_row_order_visualisation_fun <- function(x){
     ungroup()
 }
 
-
+# Load static scenario metadata and starting landscape composition.
 load_fixed_scenario_params <- function(path = file.path("Inputs", "FixedScenarioParmams.R")) {
   stopifnot(file.exists(path))
   # Use an isolated environment but inherit from the current session so that
@@ -144,7 +138,7 @@ load_fixed_scenario_params <- function(path = file.path("Inputs", "FixedScenario
 
   list(all_start_landscape = get("all_start_landscape", envir = env, inherits = FALSE))
 }
-
+# Expand baseline starting landscape across years for join-ready trajectories.
 expand_start_landscape_through_time <- function(all_start_landscape, years = 0:60) {
   all_start_landscape %>%
     mutate(functional_habitat = habitat) %>%
@@ -160,7 +154,7 @@ expand_start_landscape_through_time <- function(all_start_landscape, years = 0:6
     mutate(functionalhabAge = years) %>%
     ungroup()
 }
-
+# Load SCC discount-rate table and derive normalized SCC ratios by year.
 load_social_discount_rates <- function(path = file.path(nr2_out_root, "03_scc", "tables", "scc_dr_2_4_6.csv")) {
   stopifnot(file.exists(path))
   read.csv(path) %>%
@@ -169,7 +163,7 @@ load_social_discount_rates <- function(path = file.path(nr2_out_root, "03_scc", 
     mutate(scc_discounted_ratio = scc_discounted / first(scc_discounted)) %>%
     ungroup()
 }
-
+# Build scenario composition descriptors used in summaries/plots.
 load_scenario_composition <- function(path = file.path("Inputs", "MasterAllScenarios.rds")) {
   stopifnot(file.exists(path))
   scenarios2 <- readRDS(path)
@@ -288,11 +282,13 @@ load_scenario_composition <- function(path = file.path("Inputs", "MasterAllScena
   out
 }
 
+# Load scenario schedules (with harvest-delay variants) from master input RDS.
 load_scenario_schedules <- function(path = file.path("Inputs", "MasterAllScenarios_withHarvestDelays.rds")) {
   stopifnot(file.exists(path))
   readRDS(path)
 }
 
+# Load ACD posterior draws prepared in step 02.
 load_acd_draws <- function(path = file.path(nr2_out_root, "02_draws", "rds", "acdraws_aboveground.rds")) {
   stopifnot(file.exists(path))
   readRDS(path)
@@ -320,6 +316,7 @@ load_acd_draws <- function(path = file.path(nr2_out_root, "02_draws", "rds", "ac
 # if parcel starts as primary and goes to twice-logged, use the 30yrafter 1L, with different slope factors
 # ---------------------------------------------------------------------------
 
+# For no-transition rows (original_habitat == habitat), keep only delay 0.
 filter_original_eq_habitat <- function(df_list) {
   # Other original==habitat pairs (e.g. primary-primary); 1L->1L delay==0 is enforced in update_1L_functional_habitat
   df_list %>% map(~ .x %>% filter(!(original_habitat == habitat & (is.na(harvest_delay) | harvest_delay != 0))))
@@ -332,6 +329,7 @@ filter_original_eq_habitat <- function(df_list) {
 #   (2) original once-logged + habitat once-logged -> functional_habitat = once-logged_start;
 #       drop rows unless harvest_delay == 0.
 
+# Apply once-logged-specific routing rules so schedule labels match draw habitats.
 update_1L_functional_habitat <- function(df_list) {
   df_list %>%
     map(~ .x %>%
@@ -356,6 +354,7 @@ update_1L_functional_habitat <- function(df_list) {
           ))
 }
 
+# Apply twice-logged-specific routing and minimum-delay rule.
 update_2L_functional_habitat <- function(df_list) {
   # scenarios that start as twice-logged are treated as re-harvested just before scenario start
   df_list %>%
@@ -371,10 +370,12 @@ update_2L_functional_habitat <- function(df_list) {
     )
 }
 
+# Drop scenarios with production_target <= 0 (not relevant for timber pathways).
 remove_no_timber_scenarios <- function(df_list) {
   df_list %>% map(~ .x %>% filter(production_target > 0))
 }
 
+# Prepare schedules once: normalize labels, coerce delays, apply transition rules.
 prepare_scenarios <- function(scenarios) {
   scenarios <- scenarios %>%
     map(~ .x %>%
@@ -398,6 +399,7 @@ prepare_scenarios <- function(scenarios) {
 # 3) DRAWS PREP
 # =============================================================================
 
+# Build per-draw lookup tables, filtered to the chosen twice-logged slope trajectory.
 prepare_draw_list <- function(acd_draws, twice_logged_slope_trajectory, max_draws = NULL) {
   # Match legacy naming and select the desired twice-logged slope scenario
   acd_draws <- acd_draws %>%
@@ -420,6 +422,7 @@ prepare_draw_list <- function(acd_draws, twice_logged_slope_trajectory, max_draw
 # 4) CORE COMPUTATIONS (per scenario-set, across draws)
 # =============================================================================
 
+# Join one schedule table to one draw table to attach ACD by habitat/age.
 add_carbon_to_schedule <- function(schedule_dt, draw_dt) {
   setDT(schedule_dt)
   setDT(draw_dt)
@@ -443,6 +446,7 @@ add_carbon_to_schedule <- function(schedule_dt, draw_dt) {
   rbindlist(list(joined_primary, joined_other), use.names = TRUE)
 }
 
+# Convert parcel counts into per-delay parcel allocation within each transition/year.
 calculate_delays_per_transition <- function(x) {
   setDT(x)
   transitions <- x[, .(num_transition_delays = uniqueN(harvest_delay)),
@@ -455,6 +459,7 @@ calculate_delays_per_transition <- function(x) {
   x
 }
 
+# Aggregate joined parcel-level data to scenario-year ACD/carbon summaries.
 scenario_acd_by_year <- function(x) {
   #_______________________________________________
   # Function: scenario_ACD_fun  (original notes; adapted)
@@ -489,6 +494,7 @@ scenario_acd_by_year <- function(x) {
   ), by = .(index, production_target, true_year)]
 }
 
+# Compute cumulative carbon stock-years per draw across the scenario horizon.
 carbon_stock_years_by_draw <- function(scenario_year_dt) {
   #____________________________________________________________
   # Function: carbon_stock_years_fun  (original notes; adapted)
@@ -514,6 +520,7 @@ carbon_stock_years_by_draw <- function(scenario_year_dt) {
   ), by = .(production_target, index)]
 }
 
+# Summarise stock-years uncertainty (mean, median, 80% interval) across draws.
 summarise_stock_years <- function(carbon_yrs_dt) {
   setDT(carbon_yrs_dt)
   carbon_yrs_dt[, .(
@@ -529,6 +536,7 @@ summarise_stock_years <- function(carbon_yrs_dt) {
   ), by = .(index, production_target)]
 }
 
+# Build baseline starting-landscape trajectory for each draw/year.
 starting_landscape_acd_by_year <- function(draw_dt, all_start_landscape) {
   setDT(draw_dt)
   sl <- copy(as.data.table(all_start_landscape))
@@ -547,6 +555,7 @@ starting_landscape_acd_by_year <- function(draw_dt, all_start_landscape) {
          by = .(scenarioStart, true_year = functionalhabAge)]
 }
 
+# Align scenario trajectory with starting-landscape baseline for change calculations.
 join_scenario_with_start_acd <- function(scenario_year_dt, sl_year_dt) {
   #____________________________________________________
   # Function: join_scenario_with_start_ACD  (original notes; adapted)
@@ -571,6 +580,7 @@ join_scenario_with_start_acd <- function(scenario_year_dt, sl_year_dt) {
   ) %>% unique()
 }
 
+# Convert level trajectories to annual ACD change relative to baseline.
 acd_change_dt <- function(dt) {
   # --------------------------------------------------------------------------------
   # Function: ACD_change_function_dt  (original notes; adapted)
@@ -591,6 +601,7 @@ acd_change_dt <- function(dt) {
   dt
 }
 
+# Convert annual ACD change to CO2-equivalent flux units for SCC monetization.
 flux_conversion <- function(dt) {
   #________________________________________________________
   # Function: flux_conversion_function  (original notes; adapted)
@@ -605,6 +616,7 @@ flux_conversion <- function(dt) {
   dt
 }
 
+# Prepare SCC lookup tables by discount rate for fast joins.
 prepare_scc_tables <- function(socialDR) {
   # Prepare Social Cost of Carbon (SCC) tables
   # SCC datasets contain discounted values of the social cost of carbon (scc_discounted)
@@ -617,6 +629,7 @@ prepare_scc_tables <- function(socialDR) {
   )
 }
 
+# Apply SCC lookup to annual fluxes and compute total discounted SCC impact.
 total_scc_impact <- function(dt, scc_dt) {
   #_______________________________________
   # Define core function: socialDR_fun()  (original notes; adapted)
@@ -632,6 +645,7 @@ total_scc_impact <- function(dt, scc_dt) {
     summarise(TOTcarbon_ACD_impact = sum(annual_carbon_impact_ACD, na.rm = TRUE), .groups = "drop")
 }
 
+# Summarise SCC impacts across draws (mean/median and uncertainty intervals).
 summarise_totcarbon_draws <- function(df) {
   #----------------------------------------------
   # Function: summarize_totcarbon_draws  (original notes; adapted)
@@ -641,15 +655,16 @@ summarise_totcarbon_draws <- function(df) {
     group_by(index, production_target, scenarioStart, scenarioName) %>%
     summarise(
       TOTcarbon_ACD_mean = mean(TOTcarbon_ACD_impact, na.rm = TRUE),
-      # NOTE: these quantiles match the existing script even though the names suggest 95%
-      TOTcarbon_ACD_lwr95 = quantile(TOTcarbon_ACD_impact, 0.25, na.rm = TRUE),
-      TOTcarbon_ACD_upr95 = quantile(TOTcarbon_ACD_impact, 0.75, na.rm = TRUE),
+      # 95% and 80% credible intervals
+      TOTcarbon_ACD_lwr95 = quantile(TOTcarbon_ACD_impact, 0.025, na.rm = TRUE),
+      TOTcarbon_ACD_upr95 = quantile(TOTcarbon_ACD_impact, 0.975, na.rm = TRUE),
       TOTcarbon_ACD_lwr80 = quantile(TOTcarbon_ACD_impact, 0.10, na.rm = TRUE),
       TOTcarbon_ACD_upr80 = quantile(TOTcarbon_ACD_impact, 0.90, na.rm = TRUE),
       .groups = "drop"
     )
 }
 
+# End-to-end runner for one scenario set across all selected draws.
 run_one_scenario_set <- function(
     scenario_set_dt,
     draw_list,
@@ -793,296 +808,151 @@ if (interactive()) {
 }
 
 acd_draws <- time_it("Load ACD draws (02_draws output)", load_acd_draws())
-draw_list <- time_it(
-  "Prepare per-draw lookup tables",
-  prepare_draw_list(acd_draws, twice_logged_slope_trajectory, max_draws = max_draws)
-)
-rm(acd_draws)
+trajectory_values <- twice_logged_slope_trajectories
+if (is.null(trajectory_values) || length(trajectory_values) == 0) {
+  trajectory_values <- sort(unique(as.character(acd_draws$slope_factor)))
+}
+trajectory_values <- unique(as.character(trajectory_values))
+log_line("Running trajectories: ", paste(trajectory_values, collapse = ", "))
 
 if (!is.null(scenario_set_idxs)) {
   scenario_set_idxs <- scenario_set_idxs[scenario_set_idxs >= 1 & scenario_set_idxs <= length(scenarios)]
   scenarios <- scenarios[scenario_set_idxs]
 }
 
-posterior_summary_all <- vector("list", length(scenarios))
-names(posterior_summary_all) <- paste0("scenario_set_", seq_along(scenarios))
+posterior_summary_all_by_trajectory <- list()
+posterior_summary_combined_by_trajectory <- list()
+final_performance_carbon_by_trajectory <- list()
+carbon_stock_years_out_by_trajectory <- list()
 
-log_line("Running ", length(scenarios), " scenario set(s) ...")
+for (traj in trajectory_values) {
+  traj_suffix <- trajectory_file_suffix(traj)
+  log_line("----- 2L trajectory: ", traj, " -----")
 
-for (i in seq_along(scenarios)) {
-  log_line("Scenario set ", i, " / ", length(scenarios))
-  res <- run_one_scenario_set(
-    scenario_set_dt = scenarios[[i]],
-    draw_list = draw_list,
-    all_start_landscape = all_start_landscape,
-    scc_tables = scc_tables,
-    scenario_composition = scenario_composition,
-    limit_indices_per_set = limit_indices_per_set
+  draw_list <- time_it(
+    paste0("Prepare per-draw lookup tables (", traj_suffix, ")"),
+    prepare_draw_list(acd_draws, traj, max_draws = max_draws)
   )
-  posterior_summary_all[[i]] <- res$posterior_summary
+
+  posterior_summary_all <- vector("list", length(scenarios))
+  names(posterior_summary_all) <- paste0("scenario_set_", seq_along(scenarios))
+  log_line("Running ", length(scenarios), " scenario set(s) for ", traj_suffix, " ...")
+
+  for (i in seq_along(scenarios)) {
+    log_line("Scenario set ", i, " / ", length(scenarios), " [", traj_suffix, "]")
+    res <- run_one_scenario_set(
+      scenario_set_dt = scenarios[[i]],
+      draw_list = draw_list,
+      all_start_landscape = all_start_landscape,
+      scc_tables = scc_tables,
+      scenario_composition = scenario_composition,
+      limit_indices_per_set = limit_indices_per_set
+    )
+    posterior_summary_all[[i]] <- res$posterior_summary
+  }
+
+  # Combine scenario-set outputs into one table for export + plotting
+  posterior_summary_combined <- rbindlist(posterior_summary_all, use.names = TRUE, fill = TRUE) %>%
+    mutate(twice_logged_slope_trajectory = as.character(traj))
+
+  # Final performance exports (for consolidated cross-outcome figures)
+  final_performance_carbon <- posterior_summary_combined %>%
+    select(
+      index, production_target, scenarioName, scenarioStart, discount_rate,
+      TOTcarbon_ACD_mean, TOTcarbon_ACD_lwr80, TOTcarbon_ACD_upr80, TOTcarbon_ACD_lwr95, TOTcarbon_ACD_upr95,
+      twice_logged_slope_trajectory
+    ) %>%
+    distinct() %>%
+    mutate(outcome = "carbon")
+
+  carbon_stock_years_out <- posterior_summary_combined %>%
+    select(
+      index, production_target, scenarioName, scenarioStart,
+      mean_cum_stock_year, lwr_cum_stock_year_80, upr_cum_stock_year_80, lwr_cum_stock_year_95, upr_cum_stock_year_95,
+      twice_logged_slope_trajectory
+    ) %>%
+    distinct() %>%
+    mutate(outcome = "carbon")
+
+  # Per-trajectory saves (explicitly labelled by trajectory)
+  saveRDS(posterior_summary_all, file.path(rds_dir, paste0("carbon_outcomes__", traj_suffix, ".rds")))
+  write.csv(
+    as.data.frame(posterior_summary_combined),
+    file.path(tab_dir, paste0("carbon_outcomes_combined__", traj_suffix, ".csv")),
+    row.names = FALSE
+  )
+  saveRDS(
+    final_performance_carbon,
+    file.path(rds_dir, paste0("final_performance__carbon__with_uncertainty__", traj_suffix, ".rds"))
+  )
+  write.csv(
+    as.data.frame(final_performance_carbon),
+    file.path(tab_dir, paste0("final_performance__carbon__with_uncertainty__", traj_suffix, ".csv")),
+    row.names = FALSE
+  )
+  saveRDS(
+    carbon_stock_years_out,
+    file.path(rds_dir, paste0("final_performance__carbon_stock_years__with_uncertainty__", traj_suffix, ".rds"))
+  )
+  write.csv(
+    as.data.frame(carbon_stock_years_out),
+    file.path(tab_dir, paste0("final_performance__carbon_stock_years__with_uncertainty__", traj_suffix, ".csv")),
+    row.names = FALSE
+  )
+
+  posterior_summary_all_by_trajectory[[traj_suffix]] <- posterior_summary_all
+  posterior_summary_combined_by_trajectory[[traj_suffix]] <- posterior_summary_combined
+  final_performance_carbon_by_trajectory[[traj_suffix]] <- final_performance_carbon
+  carbon_stock_years_out_by_trajectory[[traj_suffix]] <- carbon_stock_years_out
 }
 
-# Combine scenario-set outputs into one table for export + plotting
-posterior_summary_combined <- rbindlist(posterior_summary_all, use.names = TRUE, fill = TRUE)
+rm(acd_draws)
+
+# Keep backwards-compatible objects for downstream plotting (first trajectory).
+first_traj <- names(posterior_summary_all_by_trajectory)[1]
+posterior_summary_all <- posterior_summary_all_by_trajectory[[first_traj]]
+posterior_summary_combined <- posterior_summary_combined_by_trajectory[[first_traj]]
+final_performance_carbon <- final_performance_carbon_by_trajectory[[first_traj]]
+carbon_stock_years_out <- carbon_stock_years_out_by_trajectory[[first_traj]]
 
 # =============================================================================
 # 6) SAVE OUTPUTS
 # =============================================================================
 
-saveRDS(posterior_summary_all, file.path(rds_dir, "carbon_outcomes_temp.rds"))
+# Combined outputs across all trajectories
+posterior_summary_combined_all_trajectories <- bind_rows(posterior_summary_combined_by_trajectory)
+final_performance_carbon_all_trajectories <- bind_rows(final_performance_carbon_by_trajectory)
+carbon_stock_years_out_all_trajectories <- bind_rows(carbon_stock_years_out_by_trajectory)
+
+saveRDS(posterior_summary_all_by_trajectory, file.path(rds_dir, "carbon_outcomes__all_trajectories.rds"))
 writeLines(capture.output(sessionInfo()), con = file.path(out_root, "sessionInfo.txt"))
 
 # Save a single combined CSV for easy inspection / plotting elsewhere
 write.csv(
-  as.data.frame(posterior_summary_combined),
-  file.path(tab_dir, "carbon_outcomes_temp_combined.csv"),
+  as.data.frame(posterior_summary_combined_all_trajectories),
+  file.path(tab_dir, "carbon_outcomes_combined__all_trajectories.csv"),
   row.names = FALSE
 )
 
-# =============================================================================
-# 6B) DIAGNOSTICS: restored transitions (starting from mostly_1L landscapes)
-# =============================================================================
+saveRDS(
+  final_performance_carbon_all_trajectories,
+  file.path(rds_dir, "final_performance__carbon__with_uncertainty__all_trajectories.rds")
+)
+write.csv(
+  as.data.frame(final_performance_carbon_all_trajectories),
+  file.path(tab_dir, "final_performance__carbon__with_uncertainty__all_trajectories.csv"),
+  row.names = FALSE
+)
 
-# Turn this on when debugging suspiciously high carbon in restored scenarios.
-DIAG_RESTORED_FROM_1L <- TRUE
-DIAG_N_SCENARIOS <- 6
-DIAG_N_DRAWS <- 1
-
-select_restored_extremes <- function(df, n = 6) {
-  x <- as.data.frame(df) %>%
-    distinct(
-      scenarioName, index, production_target, scenarioStart,
-      propRestored, mean_cum_stock_year
-    ) %>%
-    filter(
-      !is.na(propRestored),
-      propRestored > 0,
-      grepl("^mostly_1L", scenarioStart)
-    ) %>%
-    arrange(desc(mean_cum_stock_year))
-
-  head(x, n)
-}
-
-find_scenario_set_idx_by_name <- function(scenarios_list, scenario_name) {
-  nm <- vapply(
-    scenarios_list,
-    function(dt) as.character(unique(as.data.table(dt)$scenarioName)[1]),
-    character(1)
-  )
-  which(nm == scenario_name)[1]
-}
-
-diag_trace_scenario_one_draw <- function(
-    scenario_set_dt,
-    draw_dt,
-    scen_name,
-    scen_index,
-    scen_pt,
-    out_dir,
-    case_id = NULL
-) {
-  dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
-
-  sched0 <- as.data.table(copy(scenario_set_dt))[
-    scenarioName == scen_name & index == scen_index & production_target == scen_pt
-  ]
-  if (nrow(sched0) == 0) return(invisible(NULL))
-
-  # 1) Parcel accounting BEFORE carbon join (detect weird inflation/deflation)
-  sched_pre <- copy(sched0)
-  sched_pre <- calculate_delays_per_transition(sched_pre)
-  parcels_pre <- sched_pre[, .(
-    parcels = sum(parcels_per_delay, na.rm = TRUE)
-  ), by = .(true_year, habitat)]
-  parcels_pre_tot <- sched_pre[, .(parcels_total = sum(parcels_per_delay, na.rm = TRUE)), by = .(true_year)]
-
-  # 2) Carbon join and accounting AFTER join (detect join dropouts)
-  joined <- add_carbon_to_schedule(copy(sched0), draw_dt)
-  joined <- calculate_delays_per_transition(joined)
-  parcels_post_tot <- joined[, .(parcels_total = sum(parcels_per_delay, na.rm = TRUE)), by = .(true_year)]
-  parcels_post <- joined[, .(parcels = sum(parcels_per_delay, na.rm = TRUE)), by = .(true_year, habitat)]
-
-  # 3) Habitat-year carbon + ACD summaries (restored vs others)
-  joined[, ACD_per_parcel := ACD * 1000]
-  joined[, carbon_Mg := ACD_per_parcel * parcels_per_delay]
-
-  hab_year <- joined[, .(
-    parcels = sum(parcels_per_delay, na.rm = TRUE),
-    carbon_Mg = sum(carbon_Mg, na.rm = TRUE),
-    ACD_wmean = if (sum(parcels_per_delay, na.rm = TRUE) > 0) {
-      weighted.mean(ACD, w = parcels_per_delay, na.rm = TRUE)
-    } else {
-      NA_real_
-    },
-    # for catching weird age mapping
-    functionalhabAge_min = suppressWarnings(min(functionalhabAge, na.rm = TRUE)),
-    functionalhabAge_max = suppressWarnings(max(functionalhabAge, na.rm = TRUE)),
-    functional_habitat_mode = as.character(names(sort(table(functional_habitat), decreasing = TRUE))[1])
-  ), by = .(true_year, habitat)]
-
-  restored_year <- hab_year[habitat == "restored"]
-  other_year <- hab_year[habitat != "restored", .(
-    parcels = sum(parcels, na.rm = TRUE),
-    carbon_Mg = sum(carbon_Mg, na.rm = TRUE)
-  ), by = .(true_year)]
-  setnames(other_year, c("parcels", "carbon_Mg"), c("parcels_other", "carbon_Mg_other"))
-
-  restored_vs_other <- merge(
-    restored_year[, .(true_year, parcels_restored = parcels, carbon_Mg_restored = carbon_Mg, ACD_restored = ACD_wmean)],
-    other_year,
-    by = "true_year",
-    all = TRUE
-  )
-
-  # 4) Cross-tab: how are restored parcels being treated functionally?
-  restored_map <- joined[habitat == "restored", .N, by = .(functional_habitat)]
-  restored_age <- joined[habitat == "restored", .N, by = .(functional_habitat, functionalhabAge)][order(functional_habitat, functionalhabAge)]
-  restored_mismatch <- joined[habitat == "restored" & functional_habitat != "restored", .(
-    true_year,
-    original_habitat,
-    habitat,
-    functional_habitat,
-    functionalhabAge,
-    harvest_delay,
-    parcels_per_delay,
-    ACD
-  )]
-
-  join_drop <- merge(
-    parcels_pre,
-    parcels_post,
-    by = c("true_year", "habitat"),
-    all = TRUE,
-    suffixes = c("_pre", "_post")
-  )
-  join_drop[, `:=`(
-    parcels_pre = fifelse(is.na(parcels_pre), 0, parcels_pre),
-    parcels_post = fifelse(is.na(parcels_post), 0, parcels_post),
-    parcels_dropped = parcels_pre - parcels_post
-  )]
-
-  # 5) Check whether draw table even contains "restored"
-  draw_has_restored <- any(as.data.table(draw_dt)$functional_habitat == "restored")
-  draw_restored_range <- NULL
-  if (isTRUE(draw_has_restored)) {
-    draw_restored_range <- as.data.table(draw_dt)[functional_habitat == "restored", .(
-      functionalhabAge_min = min(functionalhabAge, na.rm = TRUE),
-      functionalhabAge_max = max(functionalhabAge, na.rm = TRUE),
-      ACD_min = min(ACD, na.rm = TRUE),
-      ACD_max = max(ACD, na.rm = TRUE)
-    )]
-  }
-
-  # 6) Write tables
-  # Keep filenames short (Windows/OneDrive path-length limits).
-  if (is.null(case_id) || identical(case_id, "")) {
-    case_id <- "case"
-  }
-  stub <- as.character(case_id)
-  fwrite(parcels_pre, file.path(out_dir, paste0(stub, "__parcels_pre.csv")))
-  fwrite(parcels_pre_tot, file.path(out_dir, paste0(stub, "__parcels_tot_pre.csv")))
-  fwrite(parcels_post_tot, file.path(out_dir, paste0(stub, "__parcels_tot_post.csv")))
-  fwrite(hab_year, file.path(out_dir, paste0(stub, "__hab_year.csv")))
-  fwrite(restored_vs_other, file.path(out_dir, paste0(stub, "__rvso.csv")))
-  fwrite(restored_map, file.path(out_dir, paste0(stub, "__rest_map.csv")))
-  fwrite(restored_age, file.path(out_dir, paste0(stub, "__rest_age.csv")))
-  fwrite(join_drop, file.path(out_dir, paste0(stub, "__join_drop.csv")))
-  if (nrow(restored_mismatch) > 0) {
-    fwrite(restored_mismatch, file.path(out_dir, paste0(stub, "__rest_mismatch.csv")))
-  }
-  fwrite(
-    data.table::data.table(draw_has_restored = draw_has_restored),
-    file.path(out_dir, paste0(stub, "__draw_has_rest.csv"))
-  )
-  if (!is.null(draw_restored_range)) {
-    fwrite(draw_restored_range, file.path(out_dir, paste0(stub, "__draw_rest_rng.csv")))
-  }
-
-  # 7) Plots (quick visual checks)
-  p1 <- restored_vs_other %>%
-    pivot_longer(
-      cols = c(carbon_Mg_restored, carbon_Mg_other),
-      names_to = "series",
-      values_to = "carbon_Mg"
-    ) %>%
-    mutate(series = recode(series, carbon_Mg_restored = "restored", carbon_Mg_other = "other")) %>%
-    ggplot(aes(x = true_year, y = carbon_Mg / 1e9, colour = series)) +
-    geom_line(linewidth = 0.6, na.rm = TRUE) +
-    labs(
-      x = "Year",
-      y = "Carbon stock (billion Mg C; ACD*area)",
-      title = paste0("Carbon by year: restored vs other\n", scen_name, " | idx=", scen_index, " | pt=", scen_pt)
-    ) +
-    theme_bw(base_size = 12)
-  ggsave(
-    filename = file.path(out_dir, paste0(stub, "__carbon.png")),
-    plot = p1,
-    width = 9,
-    height = 4.8,
-    dpi = 220
-  )
-
-  p2 <- restored_vs_other %>%
-    ggplot(aes(x = true_year, y = ACD_restored)) +
-    geom_line(linewidth = 0.6, colour = "#2b8cbe", na.rm = TRUE) +
-    labs(
-      x = "Year",
-      y = "Restored ACD (Mg/ha; weighted mean)",
-      title = paste0("Restored ACD trajectory (diagnostic)\n", scen_name, " | idx=", scen_index, " | pt=", scen_pt)
-    ) +
-    theme_bw(base_size = 12)
-  ggsave(
-    filename = file.path(out_dir, paste0(stub, "__acd.png")),
-    plot = p2,
-    width = 9,
-    height = 4.8,
-    dpi = 220
-  )
-
-  invisible(TRUE)
-}
-
-if (isTRUE(DIAG_RESTORED_FROM_1L)) {
-  # Keep diagnostics paths short to avoid Windows path-length issues on OneDrive.
-  out_root_abs <- normalizePath(out_root, winslash = "/", mustWork = FALSE)
-  diag_dir <- file.path(out_root_abs, "d", RUN_LABEL)
-  dir.create(diag_dir, recursive = TRUE, showWarnings = FALSE)
-  if (!dir.exists(diag_dir)) {
-    dir.create(diag_dir, recursive = TRUE, showWarnings = TRUE)
-  }
-  if (!dir.exists(diag_dir)) {
-    stop("Diagnostics directory could not be created: ", diag_dir, " (cwd=", getwd(), ")")
-  }
-
-  extremes <- select_restored_extremes(posterior_summary_combined, n = DIAG_N_SCENARIOS)
-  extremes <- extremes %>% mutate(case_id = sprintf("c%02d", seq_len(nrow(extremes))))
-  data.table::fwrite(as.data.frame(extremes), file.path(diag_dir, "cases.csv"))
-  log_line("Diagnostics: selected ", nrow(extremes), " extreme restored scenarios (mostly_1L).")
-
-  if (nrow(extremes) > 0) {
-    draw_dt_1 <- draw_list[[1]]
-    for (r in seq_len(nrow(extremes))) {
-      case_id <- extremes$case_id[[r]]
-      scen <- extremes$scenarioName[[r]]
-      idx <- extremes$index[[r]]
-      pt <- extremes$production_target[[r]]
-      set_i <- find_scenario_set_idx_by_name(scenarios, scen)
-      if (is.na(set_i) || length(set_i) == 0) next
-
-      log_line("Diagnostics: tracing ", case_id, " ", scen, " (idx=", idx, ", pt=", pt, ")")
-      diag_trace_scenario_one_draw(
-        scenario_set_dt = scenarios[[set_i]],
-        draw_dt = draw_dt_1,
-        scen_name = scen,
-        scen_index = idx,
-        scen_pt = pt,
-        out_dir = diag_dir,
-        case_id = case_id
-      )
-    }
-  }
-}
+saveRDS(
+  carbon_stock_years_out_all_trajectories,
+  file.path(rds_dir, "final_performance__carbon_stock_years__with_uncertainty__all_trajectories.rds")
+)
+write.csv(
+  as.data.frame(carbon_stock_years_out_all_trajectories),
+  file.path(tab_dir, "final_performance__carbon_stock_years__with_uncertainty__all_trajectories.csv"),
+  row.names = FALSE
+)
 
 # =============================================================================
 # 7) PLOTS (clean summary figures)
@@ -1095,6 +965,7 @@ if (isTRUE(DIAG_RESTORED_FROM_1L)) {
 #
 # Note: `posterior_summary_*` includes `propOG` + `propPlant` from `scenario_composition`.
 
+# Static SCC figure for manuscript-style comparison across scenarios.
 plot_scc_master <- function(df) {
   x <- df %>%
     mutate(
@@ -1147,6 +1018,7 @@ plot_scc_master <- function(df) {
     )
 }
 
+# Static stock-years figure (uncertainty-aware) across scenarios.
 plot_stock_years_master <- function(df) {
   stock_df <- df %>%
     distinct(
@@ -1205,6 +1077,7 @@ plot_stock_years_master <- function(df) {
     )
 }
 
+# Sanitize labels so filenames are valid/stable across OSs.
 safe_filename <- function(x, max_len = 120) {
   x <- as.character(x)
   x <- gsub("[^A-Za-z0-9._-]+", "_", x)
@@ -1225,6 +1098,7 @@ if (!requireNamespace("htmlwidgets", quietly = TRUE)) {
   stop("Package `htmlwidgets` is required for saving interactive HTML. Please run: install.packages('htmlwidgets')")
 }
 
+# Save plotly/htmlwidgets output robustly (short lib path for Windows/OneDrive).
 save_widget_in_dir <- function(widget, file_path, selfcontained = FALSE) {
   out_dir <- dirname(file_path)
   out_file <- basename(file_path)
@@ -1246,6 +1120,7 @@ save_widget_in_dir <- function(widget, file_path, selfcontained = FALSE) {
   invisible(file_path)
 }
 
+# Interactive SCC view (hover + lasso) to inspect individual scenarios.
 plotly_scc_master <- function(df) {
   x <- df %>%
     mutate(
@@ -1305,6 +1180,7 @@ plotly_scc_master <- function(df) {
     plotly::layout(dragmode = "lasso", showlegend = FALSE)
 }
 
+# Interactive stock-years view (hover + lasso) for exploratory QA.
 plotly_stock_years_master <- function(df) {
   x <- df %>%
     distinct(
@@ -1416,6 +1292,6 @@ save_widget_in_dir(
   selfcontained = FALSE
 )
 
-log_line("Saved: ", file.path(rds_dir, "carbon_outcomes_temp.rds"))
+log_line("Saved: ", file.path(rds_dir, "carbon_outcomes__all_trajectories.rds"))
 log_line("Done.")
 

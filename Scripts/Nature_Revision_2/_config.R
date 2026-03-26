@@ -21,6 +21,14 @@ nr2_step_paths <- function(step, include_models = FALSE) {
   paths
 }
 
+# MasterAllScenarios*.rds often use "once_logged" / "twice_logged" (underscores) while draws
+# and routing logic use "once-logged" / "twice-logged". Normalize before schedule rules run.
+nr2_normalize_habitat_labels <- function(x) {
+  x <- trimws(as.character(x))
+  x <- ifelse(x == "once_logged", "once-logged", x)
+  ifelse(x == "twice_logged", "twice-logged", x)
+}
+
 nr2_ensure_dirs <- function(paths) {
   dir.create(paths$root, recursive = TRUE, showWarnings = FALSE)
   dir.create(paths$figures, recursive = TRUE, showWarnings = FALSE)
