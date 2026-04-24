@@ -1,3 +1,11 @@
+# ----------------------------------------------------------------------------
+# Nature Revision 2 — single-scenario debugger for carbon propagation
+#
+# When something looks wrong in step 04, I run this to walk one index through each intermediate join without the full wrapper functions.
+# Inputs: same intermediate RDS as the main 04 script (paths near the top).
+# Outputs: printed diagnostics and optional small tables; not used for production figures directly.
+# ----------------------------------------------------------------------------
+
 ## =============================================================================
 ## Nature Revision 2 — Step-through ONE scenario (piece-by-piece; no wrappers)
 ## =============================================================================

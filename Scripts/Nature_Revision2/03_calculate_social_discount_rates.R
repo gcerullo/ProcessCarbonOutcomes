@@ -1,3 +1,11 @@
+# ----------------------------------------------------------------------------
+# Nature Revision 2 — social cost of carbon and discounting
+#
+# I convert posterior carbon trajectories into SCC-style streams at the discount rates reviewers asked for.
+# Inputs: prepared draws from step 02; scenario schedule metadata as loaded in-script.
+# Outputs: discounted carbon summaries (RDS/CSVs) consumed by 04_propagate_carbon_thru_scenarios.R.
+# ----------------------------------------------------------------------------
+
 #09.06.24
 #this code generates estimates of the social cost of carbon through time, which I  subsequently use 
 # to calculate the financial carbon impact of scenarios by using discounted social cost of carbon values. 

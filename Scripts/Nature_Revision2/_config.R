@@ -1,3 +1,11 @@
+# ----------------------------------------------------------------------------
+# Nature Revision 2 — carbon pipeline path helpers
+#
+# I keep NR2 output roots and small label-normalisation helpers here so the long carbon scripts stay readable.
+# Inputs: optional environment variable NR2_OUT_ROOT; otherwise defaults under Outputs/Nature_Revision_Outputs/NR2/current.
+# Outputs: directories per step via nr2_ensure_dirs; RUN_INFO.txt from nr2_write_run_info() when the runner calls it.
+# ----------------------------------------------------------------------------
+
 nr2_out_root <- Sys.getenv("NR2_OUT_ROOT")
 if (identical(nr2_out_root, "")) {
   # Deterministic, simple default for publication/review

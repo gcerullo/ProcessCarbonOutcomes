@@ -1,3 +1,11 @@
+# ----------------------------------------------------------------------------
+# Nature Revision 2 — joint habitat carbon model (fits)
+#
+# This is where I fit the shared state-space / recovery model across habitats and push posterior summaries into the NR2 folder structure.
+# Inputs: cleaned carbon plot/habitat RDS and covariate tables referenced in the CONFIG section; sources _config.R.
+# Outputs: models/ and rds/ under the active NR2 step root (posterior draws, summaries for step 02).
+# ----------------------------------------------------------------------------
+
 # Nature Revision 2 version of: 01_02_one_model_to_rule_them_all.R
 # Purpose:
 # - Data prep → prior predictive checks → fit model → posterior predictive checks → simple trajectory plots
