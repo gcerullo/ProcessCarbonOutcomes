@@ -35,8 +35,28 @@ if (!requireNamespace("biscale", quietly = TRUE)) {
 # 0) OUTPUTS + RUN SETTINGS
 # =============================================================================
 
-source(file.path("Scripts", "Nature_Revision_2", "_config.R"))
-paths <- nr2_step_paths("04_propagate")
+source(file.path("Scripts", "Nature_Revision2", "_config.R"))
+
+# Use the plantation-updated draw file throughout this run, but keep upstream
+# inputs (02_draws, 03_scc) sourced from the standard NR2 output tree.
+ACD_DRAWS_FILE <- "acdraws_aboveground_updated_plant.rds"
+nr2_input_root <- file.path("Outputs", "Nature_Revision_Outputs", "NR2", "current")
+desktop_root <- file.path(
+  Sys.getenv("USERPROFILE", unset = path.expand("~")),
+  "Desktop",
+  "carbon_data_plantation_models"
+)
+make_plant_output_paths <- function(root = desktop_root) {
+  list(
+    step = "04_propagate",
+    root = root,
+    figures = file.path(root, "figures"),
+    tables = file.path(root, "tables"),
+    rds = file.path(root, "rds")
+  )
+}
+
+paths <- make_plant_output_paths()
 nr2_ensure_dirs(paths)
 
 # Base output folder for this step
@@ -104,7 +124,9 @@ log_line("scenario_set_idxs = ", paste(scenario_set_idxs %||% "ALL", collapse = 
 log_line("limit_indices_per_set = ", limit_indices_per_set %||% "NULL")
 log_line("max_draws = ", max_draws %||% "NULL")
 log_line("twice_logged_slope_trajectories = ", paste(twice_logged_slope_trajectories %||% "AUTO", collapse = ", "))
-log_line("nr2_out_root = ", normalizePath(nr2_out_root, winslash = "/", mustWork = FALSE))
+log_line("nr2_input_root = ", normalizePath(nr2_input_root, winslash = "/", mustWork = FALSE))
+log_line("Desktop output root = ", normalizePath(out_root, winslash = "/", mustWork = FALSE))
+log_line("ACD_DRAWS_FILE = ", ACD_DRAWS_FILE)
 log_line("USE_CACHE = ", USE_CACHE)
 log_line("RUN_SCENARIO_PREP_CHECKS = ", RUN_SCENARIO_PREP_CHECKS)
 log_line("RUN_PLOTS = ", RUN_PLOTS)
@@ -211,7 +233,7 @@ expand_start_landscape_through_time <- function(all_start_landscape, years = 0:6
     ungroup()
 }
 # Load SCC discount-rate table and derive normalized SCC ratios by year.
-load_social_discount_rates <- function(path = file.path(nr2_out_root, "03_scc", "tables", "scc_dr_2_4_6.csv")) {
+load_social_discount_rates <- function(path = file.path(nr2_input_root, "03_scc", "tables", "scc_dr_2_4_6.csv")) {
   stopifnot(file.exists(path))
   read.csv(path) %>%
     group_by(discount_rate) %>%
@@ -345,7 +367,7 @@ load_scenario_schedules <- function(path = file.path("Inputs", "MasterAllScenari
 }
 
 # Load ACD posterior draws prepared in step 02.
-load_acd_draws <- function(path = file.path(nr2_out_root, "02_draws", "rds", "acdraws_aboveground.rds")) {
+load_acd_draws <- function(path = file.path(nr2_input_root, "02_draws", "rds", ACD_DRAWS_FILE)) {
   stopifnot(file.exists(path))
   readRDS(path)
 }
@@ -1201,23 +1223,41 @@ write_csv_checked(
 # -----------------------------------------------------------------------------
 # 6B) STOCK-YEARS SENSITIVITY EXTENSION (additive outputs only)
 # -----------------------------------------------------------------------------
-# This block adds two reviewer-facing sensitivity products:
-#   (A) full-horizon stock-years delta vs baseline slope=1
-#   (B) windowed stock-years summaries (0-20, 0-40, 0-60 years) and their deltas vs slope=1
+# This block adds a reviewer-facing sensitivity products:
+#   (A) windowed stock-years summaries (0-20, 0-40, 0-60 years) and their deltas vs slope=1
 #
 # Why this is useful:
-# - Delta-vs-baseline removes shared uncertainty across slope assumptions and isolates
-#   the incremental effect of changing the 2L slope assumption.
 # - Windowed stock-years separate near-/mid-/long-horizon effects so cumulative
 #   uncertainty over long periods does not dominate interpretation.
 {
   # Standalone wiring: if this section is run by itself, recover paths, loggers,
   # writers, and key inputs from disk so users do not need to run earlier chunks.
   if (!exists("nr2_out_root", inherits = TRUE)) {
-    source(file.path("Scripts", "Nature_Revision_2", "_config.R"))
+    source(file.path("Scripts", "Nature_Revision2", "_config.R"))
+  }
+  if (!exists("nr2_input_root", inherits = TRUE)) {
+    nr2_input_root <- file.path("Outputs", "Nature_Revision_Outputs", "NR2", "current")
   }
   if (!exists("paths", inherits = TRUE) || !is.list(paths)) {
-    paths <- nr2_step_paths("04_propagate")
+    if (!exists("desktop_root", inherits = TRUE)) {
+      desktop_root <- file.path(
+        Sys.getenv("USERPROFILE", unset = path.expand("~")),
+        "Desktop",
+        "carbon_data_plantation_models"
+      )
+    }
+    if (!exists("make_plant_output_paths", inherits = TRUE)) {
+      make_plant_output_paths <- function(root = desktop_root) {
+        list(
+          step = "04_propagate",
+          root = root,
+          figures = file.path(root, "figures"),
+          tables = file.path(root, "tables"),
+          rds = file.path(root, "rds")
+        )
+      }
+    }
+    paths <- make_plant_output_paths()
     nr2_ensure_dirs(paths)
   }
   if (!exists("out_root", inherits = TRUE)) out_root <- paths$root
@@ -1319,57 +1359,11 @@ write_csv_checked(
     }
   }
 
-  BASELINE_SLOPE_FOR_DELTA <- "1"
   STOCK_YEAR_WINDOWS <- c(20, 40, 60)
 
-  # ---------- helper: construct delta-vs-baseline ----------
-  # For each scenario key, join each slope variant to the baseline slope row and compute:
-  #   absolute delta = variant_value - baseline_value
-  #   percent delta  = 100 * absolute delta / |baseline_value|
-  #
-  # We use |baseline| in the denominator so sign changes in baseline do not create
-  # misleading percent directions.
-  build_delta_vs_baseline <- function(df, value_col, grouping_cols, baseline_slope = "1") {
-    stopifnot(value_col %in% names(df))
-
-    baseline_tbl <- df %>%
-      filter(as.character(twice_logged_slope_trajectory) == as.character(baseline_slope)) %>%
-      select(all_of(grouping_cols), baseline_value = all_of(value_col))
-
-    df %>%
-      left_join(baseline_tbl, by = grouping_cols) %>%
-      mutate(
-        delta_vs_baseline = .data[[value_col]] - baseline_value,
-        pct_delta_vs_baseline = if_else(
-          !is.na(baseline_value) & baseline_value != 0,
-          100 * delta_vs_baseline / abs(baseline_value),
-          NA_real_
-        ),
-        baseline_slope_for_delta = as.character(baseline_slope)
-      )
-  }
-
-  # ---------- (A) full-horizon stock-years delta vs baseline ----------
-  stock_years_delta_all_trajectories <- build_delta_vs_baseline(
-    df = carbon_stock_years_out_all_trajectories,
-    value_col = "mean_cum_stock_year",
-    grouping_cols = c("index", "production_target", "scenarioName", "scenarioStart"),
-    baseline_slope = BASELINE_SLOPE_FOR_DELTA
-  ) %>%
-    mutate(delta_type = "full_horizon_stock_years")
-
-  save_rds_checked(
-    stock_years_delta_all_trajectories,
-    file.path(rds_dir, "stock_years__delta_vs_slope1__all_traj.rds")
-  )
-  write_csv_checked(
-    stock_years_delta_all_trajectories,
-    file.path(tab_dir, "stock_years__delta_vs_slope1__all_traj.csv")
-  )
-
-  # ---------- (B) windowed stock-years summaries ----------
+  # ---------- (A) windowed stock-years summaries ----------
   # We recompute stock-years by window directly from scenario-year trajectories so each
-  # window is internally consistent with your existing stock-years logic.
+  # window is internally consistent with  existing stock-years logic.
   #
   # Steps per trajectory:
   #   1) build draw_list with current 2L slope assumption
@@ -1511,382 +1505,369 @@ write_csv_checked(
     file.path(rds_dir, "stock_diff_vs_baseline__windowed__all_traj.rds")
   )
   write_csv_checked(
-    stock_diff_vs_baseline_windowed_all_trajectories,
+     stock_diff_vs_baseline_windowed_all_trajectories,
     file.path(tab_dir, "stock_diff_vs_baseline__windowed__all_traj.csv")
-  )
-
-  # Windowed delta-vs-baseline uses the same logic as full-horizon delta, but grouped
-  # within each window so comparisons are like-for-like in time horizon.
-  stock_years_windowed_delta_all_trajectories <- build_delta_vs_baseline(
-    df = stock_years_windowed_all_trajectories,
-    value_col = "mean_cum_stock_year",
-    grouping_cols = c("index", "production_target", "scenarioName", "scenarioStart", "window_year_end", "scenario_set_id"),
-    baseline_slope = BASELINE_SLOPE_FOR_DELTA
-  ) %>%
-    mutate(delta_type = "windowed_stock_years")
-
-  save_rds_checked(
-    stock_years_windowed_delta_all_trajectories,
-    file.path(rds_dir, "stock_years__windowed__delta_vs_slope1__all_traj.rds")
-  )
-  write_csv_checked(
-    stock_years_windowed_delta_all_trajectories,
-    file.path(tab_dir, "stock_years__windowed__delta_vs_slope1__all_traj.csv")
   )
 
   log_line(
     "Saved stock-years sensitivity extension outputs: ",
-    "delta_vs_baseline + windowed summaries + windowed deltas + windowed stock-diff vs baseline."
+    "windowed summaries + windowed stock-diff vs starting-landscape baseline."
   )
 }
 
-# =============================================================================
-# 7) PLOTS (clean summary figures)
-# =============================================================================
-
-# Master-style plots (what you used in the manuscript figure code):
-# - colour by amount of old-growth (propOG)
-# - shape indicates whether there is any plantation in the scenario (propPlant > 0)
-# - points + intervals share the SAME jitter so they stay connected
-#
-# Note: `posterior_summary_*` includes `propOG` + `propPlant` from `scenario_composition`.
-
-# Static SCC figure for manuscript-style comparison across scenarios.
-plot_scc_master <- function(df) {
-  x <- df %>%
-    mutate(
-      has_plantation = if_else(!is.na(propPlant) & propPlant > 0, "Plantation", "No plantation"),
-      scen_col = case_when(
-        scenarioStart %in% c("all_primary", "primary_deforested") ~ hexP,
-        scenarioStart %in% c("mostly_1L", "mostly_1L_deforested") ~ hex1L,
-        scenarioStart %in% c("mostly_2L", "mostly_2L_deforested") ~ hex2L,
-        TRUE ~ "#9E9E9E"
-      )
-    )
-
-  # Use the SAME jitter for points and error bars so they remain connected
-  pos <- position_jitter(width = 0.05, height = 0)
-
-  x %>%
-    ggplot(aes(
-      x = production_target,
-      y = TOTcarbon_ACD_mean / 1e9,
-      colour = scen_col,
-      shape = has_plantation
-    )) +
-    geom_errorbar(
-      aes(ymin = TOTcarbon_ACD_lwr80 / 1e9, ymax = TOTcarbon_ACD_upr80 / 1e9),
-      position = pos,
-      width = 0.00,
-      alpha = 0.45,
-      linewidth = 0.6
-    ) +
-    geom_point(
-      position = pos,
-      alpha = 0.55,
-      stroke = 0.7,
-      size = 2.0
-    ) +
-    scale_colour_identity() +
-    scale_shape_manual(values = c("No plantation" = 19, "Plantation" = 2)) +
-    labs(
-      x = "Production target",
-      y = "Total carbon impact (billion; ACD only)",
-      title = "SCC-discounted carbon impacts across scenarios (80% intervals)"
-    ) +
-    coord_cartesian(xlim = c(0, 1)) +
-    facet_grid(scenarioName ~ discount_rate) +
-    theme_bw(base_size = 13) +
-    theme(
-      panel.grid.major = element_line(color = "grey90"),
-      panel.grid.minor = element_blank(),
-      strip.text.y = element_blank()
-    )
-}
-
-# Static stock-years figure (uncertainty-aware) across scenarios.
-plot_stock_years_master <- function(df) {
-  stock_df <- df %>%
-    distinct(
-      scenarioName, index, production_target, scenarioStart,
-      propOG, propPlant, hexP, hex1L, hex2L,
-      mean_cum_stock_year, lwr_cum_stock_year_80, upr_cum_stock_year_80
-    ) %>%
-    mutate(
-      has_plantation = if_else(!is.na(propPlant) & propPlant > 0, "Plantation", "No plantation"),
-      scen_col = case_when(
-        scenarioStart %in% c("all_primary", "primary_deforested") ~ hexP,
-        scenarioStart %in% c("mostly_1L", "mostly_1L_deforested") ~ hex1L,
-        scenarioStart %in% c("mostly_2L", "mostly_2L_deforested") ~ hex2L,
-        TRUE ~ "#9E9E9E"
-      )
-    )
-
-  # Use the SAME jitter for points and error bars so they remain connected
-  pos <- position_jitter(width = 0.015, height = 0)
-
-  stock_df %>%
-    ggplot(aes(
-      x = production_target,
-      y = mean_cum_stock_year,
-      colour = scen_col,
-      shape = has_plantation
-    )) +
-    geom_errorbar(
-      aes(ymin = lwr_cum_stock_year_80, ymax = upr_cum_stock_year_80),
-      position = pos,
-      width = 0.015,
-      linewidth = 0.6,
-      alpha = 0.5
-    ) +
-    geom_point(
-      position = pos,
-      alpha = 0.55,
-      stroke = 0.7,
-      size = 2.0
-    ) +
-    scale_colour_identity() +
-    scale_shape_manual(values = c("No plantation" = 19, "Plantation" = 2)) +
-    labs(
-      x = "Production target",
-      y = "Carbon stock-years (Mg C)",
-      title = "Carbon stock-years across scenarios (80% intervals)"
-    ) +
-    coord_cartesian(xlim = c(0, 1)) +
-    facet_wrap(~scenarioName, ncol = 4) +
-    theme_bw(base_size = 13) +
-    theme(
-      legend.position = "none",
-      panel.grid.major = element_line(color = "grey90"),
-      panel.grid.minor = element_blank(),
-      strip.text = element_blank()
-    )
-}
-
-# Sanitize labels so filenames are valid/stable across OSs.
-safe_filename <- function(x, max_len = 120) {
-  x <- as.character(x)
-  x <- gsub("[^A-Za-z0-9._-]+", "_", x)
-  x <- gsub("_+", "_", x)
-  x <- gsub("^_|_$", "", x)
-  if (nchar(x) > max_len) x <- substr(x, 1, max_len)
-  if (!nzchar(x)) x <- "unnamed"
-  x
-}
-
-
-#check outputs
-final_perf_carbon_stock_years_unc_all_trajectories <- read.csv("Outputs/Nature_Revision_Outputs/NR2/current/04_propagate/tables/final_perf__carbon_stock_years__unc__all_trajectories.csv")
-final_performance_carbon_with_uncertainty_all_trajectories <- read.csv("Outputs/Nature_Revision_Outputs/NR2/current/04_propagate/tables/final_performance__carbon__with_uncertainty__all_trajectories.csv")
-carbon_outcomes_combined_all_trajectories <- read.csv("Outputs/Nature_Revision_Outputs/NR2/current/04_propagate/tables/carbon_outcomes_combined__all_trajectories.csv")
-# -----------------------------------------------------------------------------
-# Interactive (hover + lasso/box select) HTML versions of the master plots
-# -----------------------------------------------------------------------------
-if (!requireNamespace("plotly", quietly = TRUE)) {
-  stop("Package `plotly` is required for interactive exploration. Please run: install.packages('plotly')")
-}
-if (!requireNamespace("htmlwidgets", quietly = TRUE)) {
-  stop("Package `htmlwidgets` is required for saving interactive HTML. Please run: install.packages('htmlwidgets')")
-}
-
-# Save plotly/htmlwidgets output robustly (short lib path for Windows/OneDrive).
-save_widget_in_dir <- function(widget, file_path, selfcontained = FALSE) {
-  out_dir <- dirname(file_path)
-  out_file <- basename(file_path)
-  dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
-
-  old_wd <- getwd()
-  on.exit(setwd(old_wd), add = TRUE)
-  setwd(out_dir)
-
-  htmlwidgets::saveWidget(
-    widget,
-    file = out_file,
-    # On Windows/OneDrive we can hit path-length limits if saveWidget creates a
-    # long "<htmlname>_files/..." dependency folder. Using a fixed short libdir
-    # is much more robust.
-    selfcontained = isTRUE(selfcontained),
-    libdir = "lib"
-  )
-  invisible(file_path)
-}
-
-# Interactive SCC view (hover + lasso) to inspect individual scenarios.
-plotly_scc_master <- function(df) {
-  x <- df %>%
-    mutate(
-      has_plantation = if_else(!is.na(propPlant) & propPlant > 0, "Plantation", "No plantation"),
-      scen_col = case_when(
-        scenarioStart %in% c("all_primary", "primary_deforested") ~ hexP,
-        scenarioStart %in% c("mostly_1L", "mostly_1L_deforested") ~ hex1L,
-        scenarioStart %in% c("mostly_2L", "mostly_2L_deforested") ~ hex2L,
-        TRUE ~ "#9E9E9E"
-      ),
-      hover = paste0(
-        "<b>scenarioName</b>: ", scenarioName,
-        "<br><b>discount_rate</b>: ", discount_rate,
-        "<br><b>index</b>: ", index,
-        "<br><b>production_target</b>: ", production_target,
-        "<br><b>scenarioStart</b>: ", scenarioStart,
-        "<br><b>composition sum</b>: ", signif(comp_sum, 4),
-        "<br>", comp_html,
-        "<br><b>TOTcarbon_ACD_mean (bn)</b>: ", signif(TOTcarbon_ACD_mean / 1e9, 4),
-        "<br><b>80% CI (bn)</b>: [", signif(TOTcarbon_ACD_lwr80 / 1e9, 4), ", ", signif(TOTcarbon_ACD_upr80 / 1e9, 4), "]"
-      )
-    )
-
-  drs <- sort(unique(x$discount_rate))
-  plots <- lapply(drs, function(dr) {
-    xd <- x %>% filter(discount_rate == dr)
-    plotly::plot_ly(
-      data = xd,
-      x = ~production_target,
-      y = ~(TOTcarbon_ACD_mean / 1e9),
-      type = "scatter",
-      mode = "markers",
-      text = ~hover,
-      hoverinfo = "text",
-      marker = list(
-        color = ~scen_col,
-        symbol = ~if_else(has_plantation == "Plantation", "x-open", "circle"),
-        size = 7,
-        line = list(width = 0.6)
-      ),
-      error_y = list(
-        type = "data",
-        symmetric = FALSE,
-        array = ~(TOTcarbon_ACD_upr80 - TOTcarbon_ACD_mean) / 1e9,
-        arrayminus = ~(TOTcarbon_ACD_mean - TOTcarbon_ACD_lwr80) / 1e9,
-        thickness = 1
-      )
-    ) %>%
-      plotly::layout(
-        title = list(text = paste0("Discount rate: ", dr)),
-        xaxis = list(title = "Production target", range = c(0, 1)),
-        yaxis = list(title = "Total carbon impact (billion; ACD only)")
-      )
-  })
-
-  plotly::subplot(plots, nrows = 1, shareX = TRUE, titleX = TRUE, titleY = TRUE) %>%
-    plotly::layout(dragmode = "lasso", showlegend = FALSE)
-}
-
-# Interactive stock-years view (hover + lasso) for exploratory QA.
-plotly_stock_years_master <- function(df) {
-  x <- df %>%
-    distinct(
-      scenarioName, index, production_target, scenarioStart,
-      comp_sum, comp_html,
-      propOG, propPlant, prop1L, prop2L, propDeforested, propRestored, hexP, hex1L, hex2L,
-      mean_cum_stock_year, lwr_cum_stock_year_80, upr_cum_stock_year_80
-    ) %>%
-    mutate(
-      has_plantation = if_else(!is.na(propPlant) & propPlant > 0, "Plantation", "No plantation"),
-      scen_col = case_when(
-        scenarioStart %in% c("all_primary", "primary_deforested") ~ hexP,
-        scenarioStart %in% c("mostly_1L", "mostly_1L_deforested") ~ hex1L,
-        scenarioStart %in% c("mostly_2L", "mostly_2L_deforested") ~ hex2L,
-        TRUE ~ "#9E9E9E"
-      ),
-      hover = paste0(
-        "<b>scenarioName</b>: ", scenarioName,
-        "<br><b>index</b>: ", index,
-        "<br><b>production_target</b>: ", production_target,
-        "<br><b>scenarioStart</b>: ", scenarioStart,
-        "<br><b>composition sum</b>: ", signif(comp_sum, 4),
-        "<br>", comp_html,
-        "<br><b>stock_years mean</b>: ", signif(mean_cum_stock_year, 5),
-        "<br><b>80% CI</b>: [", signif(lwr_cum_stock_year_80, 5), ", ", signif(upr_cum_stock_year_80, 5), "]"
-      )
-    )
-
-  plotly::plot_ly(
-    data = x,
-    x = ~production_target,
-    y = ~mean_cum_stock_year,
-    type = "scatter",
-    mode = "markers",
-    text = ~hover,
-    hoverinfo = "text",
-    marker = list(
-      color = ~scen_col,
-      symbol = ~if_else(has_plantation == "Plantation", "x-open", "circle"),
-      size = 7,
-      line = list(width = 0.6)
-    ),
-    error_y = list(
-      type = "data",
-      symmetric = FALSE,
-      array = ~(upr_cum_stock_year_80 - mean_cum_stock_year),
-      arrayminus = ~(mean_cum_stock_year - lwr_cum_stock_year_80),
-      thickness = 1
-    )
-  ) %>%
-    plotly::layout(
-      dragmode = "lasso",
-      xaxis = list(title = "Production target", range = c(0, 1)),
-      yaxis = list(title = "Carbon stock-years (Mg C)")
-    )
-}
-
-if (isTRUE(RUN_PLOTS)) {
-  # Save plots per scenario set, naming files by scenarioName (unique to each set).
-  for (k in seq_along(posterior_summary_all)) {
-    df_k <- as.data.frame(posterior_summary_all[[k]])
-    scen_names <- unique(df_k$scenarioName)
-    scen_label <- if (length(scen_names) == 1) scen_names else paste0("multiple_", k)
-    scen_label <- sub("\\.csv$", "", scen_label, ignore.case = TRUE)
-
-    p1 <- plot_scc_master(df_k)
-    ggsave(
-      file.path(fig_dir, paste0("scc_master__", safe_filename(scen_label), ".png")),
-      p1, width = 10, height = 6, units = "in", dpi = 220
-    )
-
-    p2 <- plot_stock_years_master(df_k)
-    ggsave(
-      file.path(fig_dir, paste0("stock_years_master__", safe_filename(scen_label), ".png")),
-      p2, width = 12, height = 8, units = "in", dpi = 220
-    )
-
-    # Interactive HTML (click/hover/select)
-    p1_html <- plotly_scc_master(df_k)
-    save_widget_in_dir(
-      widget = p1_html,
-      file.path(fig_dir, paste0("scc_i__", safe_filename(scen_label), ".html")),
-      selfcontained = FALSE
-    )
-
-    p2_html <- plotly_stock_years_master(df_k)
-    save_widget_in_dir(
-      widget = p2_html,
-      file.path(fig_dir, paste0("sy_i__", safe_filename(scen_label), ".html")),
-      selfcontained = FALSE
-    )
-  }
-
-  # Also save combined master plots (useful if you run multiple scenario sets together).
-  p1_all <- plot_scc_master(as.data.frame(posterior_summary_combined))
-  ggsave(file.path(fig_dir, "scc_master__ALL.png"), p1_all, width = 12, height = 8, units = "in", dpi = 220)
-
-  p2_all <- plot_stock_years_master(as.data.frame(posterior_summary_combined))
-  ggsave(file.path(fig_dir, "stock_years_master__ALL.png"), p2_all, width = 12, height = 8, units = "in", dpi = 220)
-
-  # Interactive combined views
-  save_widget_in_dir(
-    widget = plotly_scc_master(as.data.frame(posterior_summary_combined)),
-    file.path(fig_dir, "scc_i__ALL.html"),
-    selfcontained = FALSE
-  )
-  save_widget_in_dir(
-    widget = plotly_stock_years_master(as.data.frame(posterior_summary_combined)),
-    file.path(fig_dir, "sy_i__ALL.html"),
-    selfcontained = FALSE
-  )
-} else {
-  log_line("Skipping plot exports (RUN_PLOTS = FALSE).")
-}
-
-log_line("Saved: ", file.path(rds_dir, "carbon_outcomes__all_trajectories.rds"))
-log_line("Done.")
-
+*# # =============================================================================
+# # 7) PLOTS (clean summary figures)
+# # =============================================================================
+# 
+# # Master-style plots (what you used in the manuscript figure code):
+# # - colour by amount of old-growth (propOG)
+# # - shape indicates whether there is any plantation in the scenario (propPlant > 0)
+# # - points + intervals share the SAME jitter so they stay connected
+# #
+# # Note: `posterior_summary_*` includes `propOG` + `propPlant` from `scenario_composition`.
+# 
+# # Static SCC figure for manuscript-style comparison across scenarios.
+# plot_scc_master <- function(df) {
+#   x <- df %>%
+#     mutate(
+#       has_plantation = if_else(!is.na(propPlant) & propPlant > 0, "Plantation", "No plantation"),
+#       scen_col = case_when(
+#         scenarioStart %in% c("all_primary", "primary_deforested") ~ hexP,
+#         scenarioStart %in% c("mostly_1L", "mostly_1L_deforested") ~ hex1L,
+#         scenarioStart %in% c("mostly_2L", "mostly_2L_deforested") ~ hex2L,
+#         TRUE ~ "#9E9E9E"
+#       )
+#     )
+# 
+#   # Use the SAME jitter for points and error bars so they remain connected
+#   pos <- position_jitter(width = 0.05, height = 0)
+# 
+#   x %>%
+#     ggplot(aes(
+#       x = production_target,
+#       y = TOTcarbon_ACD_mean / 1e9,
+#       colour = scen_col,
+#       shape = has_plantation
+#     )) +
+#     geom_errorbar(
+#       aes(ymin = TOTcarbon_ACD_lwr80 / 1e9, ymax = TOTcarbon_ACD_upr80 / 1e9),
+#       position = pos,
+#       width = 0.00,
+#       alpha = 0.45,
+#       linewidth = 0.6
+#     ) +
+#     geom_point(
+#       position = pos,
+#       alpha = 0.55,
+#       stroke = 0.7,
+#       size = 2.0
+#     ) +
+#     scale_colour_identity() +
+#     scale_shape_manual(values = c("No plantation" = 19, "Plantation" = 2)) +
+#     labs(
+#       x = "Production target",
+#       y = "Total carbon impact (billion; ACD only)",
+#       title = "SCC-discounted carbon impacts across scenarios (80% intervals)"
+#     ) +
+#     coord_cartesian(xlim = c(0, 1)) +
+#     facet_grid(scenarioName ~ discount_rate) +
+#     theme_bw(base_size = 13) +
+#     theme(
+#       panel.grid.major = element_line(color = "grey90"),
+#       panel.grid.minor = element_blank(),
+#       strip.text.y = element_blank()
+#     )
+# }
+# 
+# # Static stock-years figure (uncertainty-aware) across scenarios.
+# plot_stock_years_master <- function(df) {
+#   stock_df <- df %>%
+#     distinct(
+#       scenarioName, index, production_target, scenarioStart,
+#       propOG, propPlant, hexP, hex1L, hex2L,
+#       mean_cum_stock_year, lwr_cum_stock_year_80, upr_cum_stock_year_80
+#     ) %>%
+#     mutate(
+#       has_plantation = if_else(!is.na(propPlant) & propPlant > 0, "Plantation", "No plantation"),
+#       scen_col = case_when(
+#         scenarioStart %in% c("all_primary", "primary_deforested") ~ hexP,
+#         scenarioStart %in% c("mostly_1L", "mostly_1L_deforested") ~ hex1L,
+#         scenarioStart %in% c("mostly_2L", "mostly_2L_deforested") ~ hex2L,
+#         TRUE ~ "#9E9E9E"
+#       )
+#     )
+# 
+#   # Use the SAME jitter for points and error bars so they remain connected
+#   pos <- position_jitter(width = 0.015, height = 0)
+# 
+#   stock_df %>%
+#     ggplot(aes(
+#       x = production_target,
+#       y = mean_cum_stock_year,
+#       colour = scen_col,
+#       shape = has_plantation
+#     )) +
+#     geom_errorbar(
+#       aes(ymin = lwr_cum_stock_year_80, ymax = upr_cum_stock_year_80),
+#       position = pos,
+#       width = 0.015,
+#       linewidth = 0.6,
+#       alpha = 0.5
+#     ) +
+#     geom_point(
+#       position = pos,
+#       alpha = 0.55,
+#       stroke = 0.7,
+#       size = 2.0
+#     ) +
+#     scale_colour_identity() +
+#     scale_shape_manual(values = c("No plantation" = 19, "Plantation" = 2)) +
+#     labs(
+#       x = "Production target",
+#       y = "Carbon stock-years (Mg C)",
+#       title = "Carbon stock-years across scenarios (80% intervals)"
+#     ) +
+#     coord_cartesian(xlim = c(0, 1)) +
+#     facet_wrap(~scenarioName, ncol = 4) +
+#     theme_bw(base_size = 13) +
+#     theme(
+#       legend.position = "none",
+#       panel.grid.major = element_line(color = "grey90"),
+#       panel.grid.minor = element_blank(),
+#       strip.text = element_blank()
+#     )
+# }
+# 
+# # Sanitize labels so filenames are valid/stable across OSs.
+# safe_filename <- function(x, max_len = 120) {
+#   x <- as.character(x)
+#   x <- gsub("[^A-Za-z0-9._-]+", "_", x)
+#   x <- gsub("_+", "_", x)
+#   x <- gsub("^_|_$", "", x)
+#   if (nchar(x) > max_len) x <- substr(x, 1, max_len)
+#   if (!nzchar(x)) x <- "unnamed"
+#   x
+# }
+# 
+# 
+# #check outputs (same tab_dir as this run — follows NR2_OUT_ROOT / Desktop default in _config.R)
+# final_perf_carbon_stock_years_unc_all_trajectories <- read.csv(
+#   file.path(tab_dir, "final_perf__carbon_stock_years__unc__all_trajectories.csv")
+# )
+# final_performance_carbon_with_uncertainty_all_trajectories <- read.csv(
+#   file.path(tab_dir, "final_performance__carbon__with_uncertainty__all_trajectories.csv")
+# )
+# carbon_outcomes_combined_all_trajectories <- read.csv(
+#   file.path(tab_dir, "carbon_outcomes_combined__all_trajectories.csv")
+# )
+# # -----------------------------------------------------------------------------
+# # Interactive (hover + lasso/box select) HTML versions of the master plots
+# # -----------------------------------------------------------------------------
+# if (!requireNamespace("plotly", quietly = TRUE)) {
+#   stop("Package `plotly` is required for interactive exploration. Please run: install.packages('plotly')")
+# }
+# if (!requireNamespace("htmlwidgets", quietly = TRUE)) {
+#   stop("Package `htmlwidgets` is required for saving interactive HTML. Please run: install.packages('htmlwidgets')")
+# }
+# 
+# # Save plotly/htmlwidgets output robustly (short lib path for Windows/OneDrive).
+# save_widget_in_dir <- function(widget, file_path, selfcontained = FALSE) {
+#   out_dir <- dirname(file_path)
+#   out_file <- basename(file_path)
+#   dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
+# 
+#   old_wd <- getwd()
+#   on.exit(setwd(old_wd), add = TRUE)
+#   setwd(out_dir)
+# 
+#   htmlwidgets::saveWidget(
+#     widget,
+#     file = out_file,
+#     # On Windows/OneDrive we can hit path-length limits if saveWidget creates a
+#     # long "<htmlname>_files/..." dependency folder. Using a fixed short libdir
+#     # is much more robust.
+#     selfcontained = isTRUE(selfcontained),
+#     libdir = "lib"
+#   )
+#   invisible(file_path)
+# }
+# 
+# # Interactive SCC view (hover + lasso) to inspect individual scenarios.
+# plotly_scc_master <- function(df) {
+#   x <- df %>%
+#     mutate(
+#       has_plantation = if_else(!is.na(propPlant) & propPlant > 0, "Plantation", "No plantation"),
+#       scen_col = case_when(
+#         scenarioStart %in% c("all_primary", "primary_deforested") ~ hexP,
+#         scenarioStart %in% c("mostly_1L", "mostly_1L_deforested") ~ hex1L,
+#         scenarioStart %in% c("mostly_2L", "mostly_2L_deforested") ~ hex2L,
+#         TRUE ~ "#9E9E9E"
+#       ),
+#       hover = paste0(
+#         "<b>scenarioName</b>: ", scenarioName,
+#         "<br><b>discount_rate</b>: ", discount_rate,
+#         "<br><b>index</b>: ", index,
+#         "<br><b>production_target</b>: ", production_target,
+#         "<br><b>scenarioStart</b>: ", scenarioStart,
+#         "<br><b>composition sum</b>: ", signif(comp_sum, 4),
+#         "<br>", comp_html,
+#         "<br><b>TOTcarbon_ACD_mean (bn)</b>: ", signif(TOTcarbon_ACD_mean / 1e9, 4),
+#         "<br><b>80% CI (bn)</b>: [", signif(TOTcarbon_ACD_lwr80 / 1e9, 4), ", ", signif(TOTcarbon_ACD_upr80 / 1e9, 4), "]"
+#       )
+#     )
+# 
+#   drs <- sort(unique(x$discount_rate))
+#   plots <- lapply(drs, function(dr) {
+#     xd <- x %>% filter(discount_rate == dr)
+#     plotly::plot_ly(
+#       data = xd,
+#       x = ~production_target,
+#       y = ~(TOTcarbon_ACD_mean / 1e9),
+#       type = "scatter",
+#       mode = "markers",
+#       text = ~hover,
+#       hoverinfo = "text",
+#       marker = list(
+#         color = ~scen_col,
+#         symbol = ~if_else(has_plantation == "Plantation", "x-open", "circle"),
+#         size = 7,
+#         line = list(width = 0.6)
+#       ),
+#       error_y = list(
+#         type = "data",
+#         symmetric = FALSE,
+#         array = ~(TOTcarbon_ACD_upr80 - TOTcarbon_ACD_mean) / 1e9,
+#         arrayminus = ~(TOTcarbon_ACD_mean - TOTcarbon_ACD_lwr80) / 1e9,
+#         thickness = 1
+#       )
+#     ) %>%
+#       plotly::layout(
+#         title = list(text = paste0("Discount rate: ", dr)),
+#         xaxis = list(title = "Production target", range = c(0, 1)),
+#         yaxis = list(title = "Total carbon impact (billion; ACD only)")
+#       )
+#   })
+# 
+#   plotly::subplot(plots, nrows = 1, shareX = TRUE, titleX = TRUE, titleY = TRUE) %>%
+#     plotly::layout(dragmode = "lasso", showlegend = FALSE)
+# }
+# 
+# # Interactive stock-years view (hover + lasso) for exploratory QA.
+# plotly_stock_years_master <- function(df) {
+#   x <- df %>%
+#     distinct(
+#       scenarioName, index, production_target, scenarioStart,
+#       comp_sum, comp_html,
+#       propOG, propPlant, prop1L, prop2L, propDeforested, propRestored, hexP, hex1L, hex2L,
+#       mean_cum_stock_year, lwr_cum_stock_year_80, upr_cum_stock_year_80
+#     ) %>%
+#     mutate(
+#       has_plantation = if_else(!is.na(propPlant) & propPlant > 0, "Plantation", "No plantation"),
+#       scen_col = case_when(
+#         scenarioStart %in% c("all_primary", "primary_deforested") ~ hexP,
+#         scenarioStart %in% c("mostly_1L", "mostly_1L_deforested") ~ hex1L,
+#         scenarioStart %in% c("mostly_2L", "mostly_2L_deforested") ~ hex2L,
+#         TRUE ~ "#9E9E9E"
+#       ),
+#       hover = paste0(
+#         "<b>scenarioName</b>: ", scenarioName,
+#         "<br><b>index</b>: ", index,
+#         "<br><b>production_target</b>: ", production_target,
+#         "<br><b>scenarioStart</b>: ", scenarioStart,
+#         "<br><b>composition sum</b>: ", signif(comp_sum, 4),
+#         "<br>", comp_html,
+#         "<br><b>stock_years mean</b>: ", signif(mean_cum_stock_year, 5),
+#         "<br><b>80% CI</b>: [", signif(lwr_cum_stock_year_80, 5), ", ", signif(upr_cum_stock_year_80, 5), "]"
+#       )
+#     )
+# 
+#   plotly::plot_ly(
+#     data = x,
+#     x = ~production_target,
+#     y = ~mean_cum_stock_year,
+#     type = "scatter",
+#     mode = "markers",
+#     text = ~hover,
+#     hoverinfo = "text",
+#     marker = list(
+#       color = ~scen_col,
+#       symbol = ~if_else(has_plantation == "Plantation", "x-open", "circle"),
+#       size = 7,
+#       line = list(width = 0.6)
+#     ),
+#     error_y = list(
+#       type = "data",
+#       symmetric = FALSE,
+#       array = ~(upr_cum_stock_year_80 - mean_cum_stock_year),
+#       arrayminus = ~(mean_cum_stock_year - lwr_cum_stock_year_80),
+#       thickness = 1
+#     )
+#   ) %>%
+#     plotly::layout(
+#       dragmode = "lasso",
+#       xaxis = list(title = "Production target", range = c(0, 1)),
+#       yaxis = list(title = "Carbon stock-years (Mg C)")
+#     )
+# }
+# 
+# if (isTRUE(RUN_PLOTS)) {
+#   # Save plots per scenario set, naming files by scenarioName (unique to each set).
+#   for (k in seq_along(posterior_summary_all)) {
+#     df_k <- as.data.frame(posterior_summary_all[[k]])
+#     scen_names <- unique(df_k$scenarioName)
+#     scen_label <- if (length(scen_names) == 1) scen_names else paste0("multiple_", k)
+#     scen_label <- sub("\\.csv$", "", scen_label, ignore.case = TRUE)
+# 
+#     p1 <- plot_scc_master(df_k)
+#     ggsave(
+#       file.path(fig_dir, paste0("scc_master__", safe_filename(scen_label), ".png")),
+#       p1, width = 10, height = 6, units = "in", dpi = 220
+#     )
+# 
+#     p2 <- plot_stock_years_master(df_k)
+#     ggsave(
+#       file.path(fig_dir, paste0("stock_years_master__", safe_filename(scen_label), ".png")),
+#       p2, width = 12, height = 8, units = "in", dpi = 220
+#     )
+# 
+#     # Interactive HTML (click/hover/select)
+#     p1_html <- plotly_scc_master(df_k)
+#     save_widget_in_dir(
+#       widget = p1_html,
+#       file.path(fig_dir, paste0("scc_i__", safe_filename(scen_label), ".html")),
+#       selfcontained = FALSE
+#     )
+# 
+#     p2_html <- plotly_stock_years_master(df_k)
+#     save_widget_in_dir(
+#       widget = p2_html,
+#       file.path(fig_dir, paste0("sy_i__", safe_filename(scen_label), ".html")),
+#       selfcontained = FALSE
+#     )
+#   }
+# 
+#   # Also save combined master plots (useful if you run multiple scenario sets together).
+#   p1_all <- plot_scc_master(as.data.frame(posterior_summary_combined))
+#   ggsave(file.path(fig_dir, "scc_master__ALL.png"), p1_all, width = 12, height = 8, units = "in", dpi = 220)
+# 
+#   p2_all <- plot_stock_years_master(as.data.frame(posterior_summary_combined))
+#   ggsave(file.path(fig_dir, "stock_years_master__ALL.png"), p2_all, width = 12, height = 8, units = "in", dpi = 220)
+# 
+#   # Interactive combined views
+#   save_widget_in_dir(
+#     widget = plotly_scc_master(as.data.frame(posterior_summary_combined)),
+#     file.path(fig_dir, "scc_i__ALL.html"),
+#     selfcontained = FALSE
+#   )
+#   save_widget_in_dir(
+#     widget = plotly_stock_years_master(as.data.frame(posterior_summary_combined)),
+#     file.path(fig_dir, "sy_i__ALL.html"),
+#     selfcontained = FALSE
+#   )
+# } else {
+#   log_line("Skipping plot exports (RUN_PLOTS = FALSE).")
+# }
+# 
+# log_line("Saved: ", file.path(rds_dir, "carbon_outcomes__all_trajectories.rds"))
+# log_line("Done.")
+# 

@@ -2,14 +2,32 @@
 # Nature Revision 2 — carbon pipeline path helpers
 #
 # I keep NR2 output roots and small label-normalisation helpers here so the long carbon scripts stay readable.
-# Inputs: optional environment variable NR2_OUT_ROOT; otherwise defaults under Outputs/Nature_Revision_Outputs/NR2/current.
+# Inputs: optional environment variable NR2_OUT_ROOT (if set, overrides everything below).
+# Default: Desktop/carbon_data_plantation_models (short path; avoids OneDrive MAX_PATH issues).
 # Outputs: directories per step via nr2_ensure_dirs; RUN_INFO.txt from nr2_write_run_info() when the runner calls it.
 # ----------------------------------------------------------------------------
 
+nr2_default_out_root <- function() {
+  home <- Sys.getenv("USERPROFILE")
+  if (!nzchar(home)) {
+    home <- Sys.getenv("HOME")
+  }
+  if (!nzchar(home)) {
+    return(file.path("Outputs", "Nature_Revision_Outputs", "NR2", "current"))
+  }
+  desk <- file.path(home, "Desktop")
+  if (!dir.exists(desk)) {
+    od <- Sys.glob(file.path(home, "OneDrive*", "Desktop"))
+    if (length(od) && dir.exists(od[[1L]])) {
+      desk <- od[[1L]]
+    }
+  }
+  file.path(desk, "carbon_data_plantation_models")
+}
+
 nr2_out_root <- Sys.getenv("NR2_OUT_ROOT")
 if (identical(nr2_out_root, "")) {
-  # Deterministic, simple default for publication/review
-  nr2_out_root <- file.path("Outputs", "Nature_Revision_Outputs", "NR2", "current")
+  nr2_out_root <- nr2_default_out_root()
 }
 
 nr2_step_paths <- function(step, include_models = FALSE) {

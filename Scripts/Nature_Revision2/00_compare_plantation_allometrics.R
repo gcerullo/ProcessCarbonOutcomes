@@ -4,20 +4,21 @@
 
 library(tidyverse)
 library(stringr)
+library(cowplot)
 
 set.seed(123)
 
 # ============================================================
-# USER INPUT
+#  INPUTS
 # ============================================================
 
 albizia_models_to_use <- c("pow")   # "pow", "ln", or c("pow","ln")
 albizia_model_choice  <- "pow"      # used for validation
 
-# BEF: stand inventory volume × wood density is stem (commercial) wood mass; values
-# >1 expand to whole-tree *aboveground* biomass to account for branches/bark/ foliage
-# not in the volume table. We also compare BEF=1 (no expansion) as a sensitivity plot.
-BEF_values <- c(low = 1.1, mid = 1.25, high = 1.4)
+# BEF: stand inventory volume × wood density is stem (commercial) wood mass; a
+# BEF > 1 expands this to whole-tree aboveground biomass so it is comparable to
+# Chave-style AGB estimates. We use one supplement-ready reference value only.
+BEF_value <- 1.2
 
 # ============================================================
 # 1) LOAD + PREP DATA
@@ -50,9 +51,11 @@ SSB <- read.csv("RawData/SSB_plot_data.csv") %>%
 # ============================================================
 # 2) PARAMETERS
 # ============================================================
-
+#from Jarapudin et al 2020
+#https://research.usc.edu.au/esploro/outputs/journalArticle/Growth-performance-of-selected-taxa-as/99450828302621
 wd_albizia    <- 0.406
 wd_eucalyptus <- 0.629
+#wd_eucalyptus <- 0.500
 
 # ============================================================
 # 3) BUILD ALL MODELS (ONCE)
@@ -181,17 +184,15 @@ fig_allometry <- SSB %>%
   theme_bw()
 
 print(fig_allometry)
+# Comparison of Chave vs specific-specific allometries
 
 # ============================================================
 # 5) VOLUME-BASED VALIDATION
 # ============================================================
-
+#compare allometry performance vs measured volume of merchantable bole 
 SSB_val <- SSB %>%
   mutate(
     AGB_volume_noBEF = volume_m3_ha * wood_density,
-    AGB_volume_low  = volume_m3_ha * wood_density * BEF_values["low"],
-    AGB_volume_mid  = volume_m3_ha * wood_density * BEF_values["mid"],
-    AGB_volume_high = volume_m3_ha * wood_density * BEF_values["high"],
     
     AGB_species = case_when(
       species_group == "Albizia"   & albizia_model_choice == "pow" ~ AGB_albizia_pow,
@@ -201,21 +202,11 @@ SSB_val <- SSB %>%
   )
 
 comparison_df <- SSB_val %>%
-  select(species_group, AGB_chave, AGB_species,
-         AGB_volume_low, AGB_volume_mid, AGB_volume_high) %>%
-  pivot_longer(
-    cols = starts_with("AGB_volume"),
-    names_to = "scenario",
-    values_to = "AGB_volume"
-  ) %>%
   mutate(
-    scenario = recode(
-      scenario,
-      AGB_volume_low = paste0("BEF_", unname(BEF_values["low"])),
-      AGB_volume_mid = paste0("BEF_", unname(BEF_values["mid"])),
-      AGB_volume_high = paste0("BEF_", unname(BEF_values["high"]))
-    )
+    AGB_volume = volume_m3_ha * wood_density * BEF_value,
+    scenario = paste0("BEF_", BEF_value)
   ) %>%
+  select(species_group, AGB_chave, AGB_species, AGB_volume, scenario) %>%
   filter(!is.na(AGB_species), !is.na(AGB_volume))
 
 # ---- Metrics ----
@@ -231,25 +222,8 @@ metrics <- comparison_df %>%
 
 print(metrics)
 
-# ---- Validation plot (BEF = 1; volume × WD only, no biomass expansion) ----
-comparison_no_bef <- SSB_val %>%
-  select(species_group, AGB_chave, AGB_species, AGB_volume_noBEF) %>%
-  filter(!is.na(AGB_species), !is.na(AGB_volume_noBEF))
-
-metrics_no_bef <- comparison_no_bef %>%
-  group_by(species_group) %>%
-  summarise(
-    bias_chave = mean(AGB_chave - AGB_volume_noBEF, na.rm = TRUE),
-    bias_species = mean(AGB_species - AGB_volume_noBEF, na.rm = TRUE),
-    rmse_chave = sqrt(mean((AGB_chave - AGB_volume_noBEF) ^ 2, na.rm = TRUE)),
-    rmse_species = sqrt(mean((AGB_species - AGB_volume_noBEF) ^ 2, na.rm = TRUE)),
-    .groups = "drop"
-  )
-
-message("Validation vs volume (BEF = 1: no expansion, stem-wood from V×WD only):")
-print(metrics_no_bef)
-
-fig_validation_no_bef <- comparison_no_bef %>%
+# ---- Validation plot ----
+fig_validation <- comparison_df %>%
   pivot_longer(
     cols = c(AGB_chave, AGB_species),
     names_to = "model",
@@ -262,35 +236,47 @@ fig_validation_no_bef <- comparison_no_bef %>%
       AGB_species = "Species allometry"
     )
   ) %>%
-  ggplot(aes(AGB_volume_noBEF, AGB_model)) +
-  geom_point(alpha = 0.6) +
-  geom_abline(slope = 1, intercept = 0, linetype = "dashed") +
-  facet_grid(species_group ~ model, scales = "free") +
-  labs(
-    x = "Reference from inventory: volume x wood density, no BEF (Mg dry mass ha-1)",
-    y = "Allometric AGB (Mg ha-1)",
-    title = "Validation: allometry vs V x wood density (BEF = 1, no expansion)"
-  ) +
-  theme_bw() +
-  theme(plot.title = element_text(size = 10))
-
-print(fig_validation_no_bef)
-
-# ---- Validation plot ----
-fig_validation <- comparison_df %>%
-  pivot_longer(
-    cols = c(AGB_chave, AGB_species),
-    names_to = "model",
-    values_to = "AGB_model"
-  ) %>%
   ggplot(aes(AGB_volume, AGB_model)) +
   geom_point(alpha = 0.6) +
   geom_abline(slope = 1, intercept = 0, linetype = "dashed") +
   coord_cartesian(ylim = c(0, 200)) +
-  facet_grid(species_group ~ model + scenario, scales = "free") +
+  facet_grid(species_group ~ model, scales = "free") +
+  labs(
+    x = paste0("Inventory-derived AGB using merchantable volume, wood density, and BEF = ", BEF_value, " (Mg ha-1)"),
+    y = "Allometric AGB (Mg ha-1)"
+  ) +
   theme_bw()
 
 print(fig_validation)
+
+# ============================================================
+# 6) SINGLE SUPPLEMENT FIGURE
+# ============================================================
+
+panel_a <- fig_allometry +
+  labs(
+    x = "Chave AGB (Mg ha-1)",
+    y = "Species-specific AGB (Mg ha-1)"
+  ) +
+  theme(
+    plot.title = element_blank(),
+    strip.text = element_text(size = 9)
+  )
+
+panel_b <- fig_validation +
+  theme(
+    plot.title = element_blank(),
+    strip.text = element_text(size = 9)
+  )
+
+supp_figure <- plot_grid(
+  panel_a,
+  panel_b,
+  labels = c("A", "B"),
+  ncol = 1,
+  align = "v",
+  rel_heights = c(0.9, 1.1)
+)
 
 # ============================================================
 # SAVE
@@ -300,24 +286,10 @@ out_dir <- file.path("Outputs", "plantation_allometrics_compare")
 dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 
 ggsave(
-  file.path(out_dir, "fig_allometry_1to1.png"),
-  fig_allometry,
-  width = 8,
-  height = 4,
-  dpi = 200
-)
-ggsave(
-  file.path(out_dir, "fig_validation.png"),
-  fig_validation,
+  file.path(out_dir, "fig_nature_supp__plantation_allometrics.png"),
+  supp_figure,
   width = 10,
-  height = 6,
-  dpi = 200
-)
-ggsave(
-  file.path(out_dir, "fig_validation_noBEF.png"),
-  fig_validation_no_bef,
-  width = 8,
-  height = 5,
+  height = 10,
   dpi = 200
 )
 message("Saved figures (PNG) to: ", normalizePath(out_dir, winslash = "/", mustWork = FALSE))

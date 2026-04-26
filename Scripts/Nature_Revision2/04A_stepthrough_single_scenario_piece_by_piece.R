@@ -36,7 +36,7 @@ suppressPackageStartupMessages({
   library(stringr)
 })
 
-source(file.path("Scripts", "Nature_Revision_2", "_config.R"))
+source(file.path("Scripts", "Nature_Revision2", "_config.R"))
 
 ## -----------------------------------------------------------------------------
 ## 0) SETTINGS (edit these)
@@ -188,7 +188,7 @@ stopifnot(nrow(sched_prepped) > 0)
 ## 3) LOAD ONE DRAW of carbon curves (ACD lookup)
 ## -----------------------------------------------------------------------------
 
-nr2_out_root <- file.path("Outputs", "Nature_Revision_Outputs", "NR2", "current")
+## nr2_out_root from _config.R (default: Desktop/carbon_data_plantation_models)
 draws_path <- file.path(nr2_out_root, "02_draws", "rds", "acdraws_aboveground.rds")
 stopifnot(file.exists(draws_path))
 acd_draws <- readRDS(draws_path)
