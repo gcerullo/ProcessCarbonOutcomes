@@ -25,13 +25,13 @@ $$
 
 where $\rho$ is wood density, $D$ is diameter at breast height, and $H$ is tree height. Where stems were measured above 1.3 m to avoid buttresses, diameters were corrected back to an equivalent diameter at 1.3 m using a taper correction. Tree height was measured directly where available and otherwise estimated from a diameter-height model fitted to regional data. Wood density values were assigned from the global wood density database using the finest available taxonomic resolution, with plot-level mean values used where no taxonomic information was available (see Philipson *et al* for details). Carbon content was then taken as 47% of aboveground biomass, and individual-tree values were summed to plot level, with small-tree censuses from nested plots scaled and added to the main plot totals. This Chave-based workflow was retained here for the primary, once-logged and restored forest regimes.
 
-For plantation inventories, tree- and stand-level measurements were converted to ACD in two steps. First, aboveground biomass (AGB, Mg ha$^{-1}$) was estimated from selected allometric equations (see below). Second, AGB was converted to carbon density as:
+For plantation inventories, tree- and stand-level measurements were converted to ACD in two steps. First, aboveground biomass (AGB, Mg ha$^{-1}$) was estimated from selected allometric equations (see below), with tree biomass multiplied by the number of live trees per hectare and converted from kg ha$^{-1}$ to Mg ha$^{-1}$. Second, AGB was converted to carbon density as:
 
 $$
 \mathrm{ACD} = 0.47 \times \mathrm{AGB}.
 $$
 
-Tree biomass was multiplied by the number of live trees per hectare and converted from kg ha$^{-1}$ to Mg ha$^{-1}$ before conversion to carbon.
+In summary, the output of organising inventory and census vegetation data was therefore a set of observed plot--level ACD values for each sampled management regime, indexed by time since logging or (for plantations) time since planting. This formed the response data for the carbon-through-time model in Section 2.
 
 #### Checking plantation allometric equations
 
