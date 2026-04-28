@@ -1,0 +1,324 @@
+---
+title: "Carbon supplementary methods"
+output: html_document
+---
+
+# Carbon Analysis Methods
+
+This note provides two manuscript-ready versions of the carbon methods. The first is a full Supplementary Methods version with notation and equations. The second is a shorter main-text version. The text follows the active carbon workflow and is written using management-regime terminology throughout.
+
+## Supplementary Methods Version
+
+### 1. Survey outcomes across management regimes and time
+
+We quantified aboveground carbon stocks and dynamics across the management regimes represented in the scenario analysis: primary forest, once-logged forest, restored forest, twice-logged forest, and industrial plantations. For natural forest regimes, we used the permanent-plot dataset compiled from three independent plot networks within our study landscape and described in Philipson *et al.* This dataset contains 257 vegetation plots, 51,803 individual tree measurements, and 45.56 ha of sampled area spanning primary forest, once-logged forest, and restored or strip-planted forest across a post-logging age gradient. The plot network does not include a direct twice-logged chronosequence, so carbon trajectories for twice-logged forest were inferred separately as described below.
+
+For plantations, we accessed 405 pre-harvest inventories from Sabah Softwoods Berhad reporting the number and diametre of standing trees per hectare within short-rotation *Eucalyptus pellita* stands ($n = 267$) and longer-rotation *Albizia falcataria* stands ($n = 138$) across a range of stand ages. Mean plantation plot size was 21.7 ha (s.d. 7.5 ha), total coverage was 9,080 ha, and the inventory contained 371,630 trees.
+
+#### Converting censuses and inventories to aboveground carbon density
+
+For the natural-forest plot network, tree censuses were converted to plot-level aboveground carbon density (ACD, Mg C ha$^{-1}$) following the approach used by and described in Philipson *et al.* Individual-tree aboveground biomass was estimated using the Chave moist-forest allometric equation:
+
+$$
+\mathrm{AGB}_{\mathrm{tree}} = 0.0673(\rho D^2 H)^{0.976},
+$$
+
+where $\rho$ is wood density, $D$ is diameter at breast height, and $H$ is tree height. Where stems were measured above 1.3 m to avoid buttresses, diameters were corrected back to an equivalent diameter at 1.3 m using a taper correction. Tree height was measured directly where available and otherwise estimated from a diameter-height model fitted to regional data. Wood density values were assigned from the global wood density database using the finest available taxonomic resolution, with plot-level mean values used where no taxonomic information was available (see Philipson *et al* for details). Carbon content was then taken as 47% of aboveground biomass, and individual-tree values were summed to plot level, with small-tree censuses from nested plots scaled and added to the main plot totals. This Chave-based workflow was retained here for the primary, once-logged and restored forest regimes.
+
+For plantation inventories, tree- and stand-level measurements were converted to ACD in two steps. First, aboveground biomass (AGB, Mg ha$^{-1}$) was estimated from selected allometric equations (see below). Second, AGB was converted to carbon density as:
+
+$$
+\mathrm{ACD} = 0.47 \times \mathrm{AGB}.
+$$
+
+Tree biomass was multiplied by the number of live trees per hectare and converted from kg ha$^{-1}$ to Mg ha$^{-1}$ before conversion to carbon.
+
+#### Checking plantation allometric equations
+
+For plantations, species- or genus-specific allometric equations would in principle be preferable to a pantropical model such as Chave, which was developed for old-growth and secondary vegetation. However, for the focal plantation taxa these equations are sparse, geographically limited, and potentially non-transferable across sites and management systems. We therefore evaluated alternative plantation allometric equations rather than assuming that Chave should be used unchanged across both plantation taxa.
+
+We compared Chave-derived plantation AGB estimates against representative alternative allometries for the focal taxa. For albizia, we compared Chave with species-specific power and log-linear alternatives; for eucalyptus, we compared Chave with a genus-specific equation from Australia. We then independently assessed these estimates against post-harvest merchantable bole volume data from the Sabah Softwoods plantation concession inventory, which we converted to biomass using species-specific wood density (determined from destructive sampling of Sabah Softwood plantation trees) and a biomass expansion factor (BEF = 1.2), so that inventory-derived stem biomass could be compared with whole-tree aboveground biomass estimates. This comparison provided an indirect check on which equation gave the most plausible plantation biomass estimates.
+
+This evaluation showed that Chave performed well for albizia but tended to overestimate eucalyptus biomass relative to the inventory-based benchmark. Accordingly, the final plantation carbon workflow uses the Chave moist-forest equation for *Albizia falcataria*:
+
+$$
+\mathrm{AGB}_{\mathrm{tree}} = 0.0673(\rho D^2 H)^{0.976},
+$$
+
+and a genus-specific equation for *Eucalyptus pellita*:
+
+$$
+\mathrm{AGB}_{\mathrm{tree}} = \exp(-2.016 + 2.375 \log D)\times 1.067.
+$$
+
+### 2. Establish carbon relationships through time
+
+We fitted a single Bayesian management-regime model to aboveground carbon density per plot across primary forest, once-logged forest, restored forest, and the two plantation regimes. We inferred twice-logged dynamics as described below, since no ACD plot data exists within twice-logged forest in our study landscape, which also does not encompass a sufficient temporal gradient of time-since-logging for in-field estimation of carbon recovery rates. However, we independently validated estimates of carbon recovery rates across all natural forest regimes using a repeat-LiDAR runover of a portion of our landscape (see below).
+
+Let $Y_i$ denote the observed ACD for plot $i$, belonging to management regime $m(i)$, measured at time since intervention $t_i$ (i.e., time since planting or logging). We modelled:
+
+$$
+Y_i \sim \mathrm{Normal}^{+}(\mu_i,\sigma_{m(i)}),
+$$
+
+where $\mathrm{Normal}^{+}$ denotes a Gaussian likelihood truncated below zero so that predicted ACD cannot be negative. The mean structure was:
+
+$$
+\mu_i = \alpha_{m(i)} + \beta_{m(i)} t_i + b_{p(i)},
+$$
+
+where $\alpha_m$ is the management-regime-specific intercept, $\beta_m$ is the management-regime-specific recovery slope, and $b_{p(i)}$ is a random intercept for plot identity nested within management regime. Residual standard deviation was also allowed to vary by management regime:
+
+$$
+\sigma_i = \sigma_{m(i)}.
+$$
+
+Primary forest was treated as a static reference regime observed at $t = 0$, whereas once-logged forest, restored forest, and plantations were modelled as linear functions of years since logging or planting. Posterior expected ACD draws were generated for each management regime and each year of the projection horizon. Let $C_{m,a}^{(r)}$ denote the predicted ACD in management regime $m$, at age $a$, for posterior draw $r$. Negative predictions were truncated to zero, and all recovering regimes were capped at the corresponding draw-specific primary-forest ACD so that trajectories plateaued at the primary reference level, which we interpreted as a realistic upper-bound for carbon recovery.
+
+#### Restored forest trajectories
+
+Restored forest required additional handling because the restoration regime in the study landscape does not affect all hectares equally through time, with planting typically preferentially targeting more-accessible areas. Thus, restored areas comprise a mixture of cohorts: (i) a portion of the area which is actively strip-planted (which we assumes takes place immediately after logging) and then later harvested within the scenario horizon, and (ii) a remaining area that continues recovering as logged forest without that restoration-and-harvest sequence. To represent this, restored trajectories were constructed as a weighted combination of two components rather than as a single homogeneous recovery path.
+
+Specifically, one cohort follows the restored-forest recovery trajectory for the first 30 years and then, after harvest of strip-planted forest, is reset onto the once-logged recovery trajectory. The second cohort follows the once-logged recovery trajectory throughout and is left unharvested. If $C_{\mathrm{rest}}^{(r)}(a)$ and $C_{\mathrm{1L}}^{(r)}(a)$ denote the restored and once-logged trajectories for draw $r$, the combined restored trajectory used for parcels was:
+
+$$
+C_{\mathrm{rest}}^{(r)\ast}(a)
+=
+w_{\mathrm{rest}} C_A^{(r)}(a)
++
+\left(1-w_{\mathrm{rest}}\right) C_{\mathrm{1L}}^{(r)}(a),
+$$
+
+where $C_A^{(r)}(a)$ follows restored recovery for $a \leq 30$ and once-logged recovery thereafter and $w_{\mathrm{rest}} = 0.285714286$, reflecting the assumption that enrichment planting (which occurs immediately after first logging) is capped at 28.6% of the area which could be logged. This is based on strip-planting typically occurring within 200 m of logging roads, and logging generally occurring 700 m from logging roads. We modelled restored forest this way because treating all restored hectares as following a single uninterrupted restoration trajectory would overstate the fraction of the landscape that remains under that trajectory through time.
+
+#### Twice-logged forest trajectories
+
+Because the study landscape lacks a direct twice-logged recovery chronosequence, twice-logged trajectories were inferred from once-logged posterior draws. First, for each posterior draw $r$, we estimated carbon loss per cubic metre removed during first-rotation logging as:
+
+$$
+\lambda^{(r)} =
+\frac{
+C_{\mathrm{primary}}^{(r)} - C_{\mathrm{1L},0}^{(r)}
+}{
+V_1
+},
+$$
+
+where $C_{\mathrm{primary}}^{(r)}$ is draw-specific primary-forest ACD, $C_{\mathrm{1L},0}^{(r)}$ is draw-specific once-logged ACD at year 0, and $V_1 = 112.96$ m$^3$ ha$^{-1}$ is the timber volume removed in the first harvest used in the active workflow.
+
+Second-rotation loss was then estimated as:
+
+$$
+L_2^{(r)} = V_2 \lambda^{(r)},
+$$
+
+where $V_2 = 31.24$ m$^3$ ha$^{-1}$ is second-rotation timber removal.
+
+This loss was then subtracted from the draw-specific once-logged trajectory immediately before the second harvest to obtain a draw-specific post-harvest starting carbon stock for twice-logged forest:
+
+$$
+C_{\mathrm{2L},0}^{(r)} = \max\left(C_{\mathrm{1L},\mathrm{pre}}^{(r)} - L_2^{(r)}, 15\right),
+$$
+
+where $C_{\mathrm{2L},0}^{(r)}$ is the ACD of twice-logged forest immediately after the second harvest in posterior draw $r$, and $C_{\mathrm{1L},\mathrm{pre}}^{(r)}$ is the corresponding once-logged ACD immediately before that harvest. The lower bound of 15 Mg C ha$^{-1}$ prevents implausibly low post-harvest values.
+
+Recovery of forest after the second harvest was then assumed to be proportional to the draw-specific once-logged recovery slope. Let $s_{\mathrm{1L}}^{(r)}$ denote the annual once-logged recovery slope for posterior draw $r$. Let $a$ denote years since the second harvest, and let $\gamma$ denote a multiplicative slope factor describing how fast twice-logged forest recovers relative to once-logged forest. The twice-logged trajectory was then:
+
+$$
+C_{\mathrm{2L}}^{(r)}(a;\gamma)
+=
+\min\left(
+C_{\mathrm{2L},0}^{(r)} + \gamma s_{\mathrm{1L}}^{(r)} a,\;
+C_{\mathrm{primary}}^{(r)}
+\right).
+$$
+
+Here, $C_{\mathrm{2L}}^{(r)}(a;\gamma)$ is the ACD of twice-logged forest at age $a$ after the second harvest, for posterior draw $r$ and slope factor $\gamma$, and the $\min(\cdot)$ operator enforces the assumption that recovery plateaus at the draw-specific primary-forest ACD, $C_{\mathrm{primary}}^{(r)}$. Again, this plateau term reflects the assumption that carbon is unlikely to surpass primary forest levels.
+
+Our main analyses consider $\gamma \in \{0.8, 1.0, 1.2\}$, representing slower, equal, or faster recovery in twice-logged than once-logged forest. The baseline analysis uses $\gamma = 1.0$, which we selected based on recovery rates inferred from repeat-LiDAR surveys over a portion of twice-logged forest in our landscape (see below). Alternative values are used as sensitivity analyses for the unmeasured recovery rate of twice-logged forest.
+
+Taken together, Section 2 ("Establish carbon relationships through time") yields a posterior library of carbon trajectories through time for each management regime. Concretely, for every posterior draw $r$, management regime $m$, and regime age $a$, the output is a predicted aboveground carbon density $C_m^{(r)}(a)$, expressed in Mg C ha$^{-1}$. This regime-by-age draw table is the direct input to the scenario propagation step.
+
+#### LiDAR-derived carbon recovery rates sensitivity analysis
+
+Carbon recovery rates within natural forest regimes were independently checked using repeat LiDAR over 4ha plots assigned to management regimes $m$ (see LiDAR coverage for details). For each plot $i$, mean canopy height was extracted from the 2013 and 2020 LiDAR surveys, giving the observed height change
+
+$$
+\Delta H_i = \bar{H}_{i,2020} - \bar{H}_{i,2013}.
+$$
+
+This height change was converted to an implied change in aboveground carbon density using the regional scaling factor $5.2\,\mathrm{Mg\,C\,ha^{-1}}$ per metre of mean canopy-height change, derived from Jucker et al.:
+
+$$
+\Delta C_i = 5.2\,\Delta H_i .
+$$
+
+The implied annual carbon recovery rate ($\,\mathrm{Mg\,C\,ha^{-1}}$) for plot $i$ was then calculated by dividing by the seven-year interval between LiDAR acqui
+
+$$
+\rho_i =
+\frac{\Delta C_i}{7}.
+$$ For each management regime $m$, the LiDAR-implied carbon recovery rate was summarised as the mean across repeat-LiDAR plots in that regime:
+
+$$
+\bar{\rho}_m =
+\mathrm{mean}_{i:m_i=m}(\rho_i).
+$$
+
+Here, $n_m$ is the number of repeat-LiDAR plots in regime $m$, and uncertainty around $\bar{\rho}_m$ was calculated as a 95% confidence interval for the mean using the among-plot variation in $\rho_i$. This provided an independent LiDAR-based check on whether the carbon recovery rates used in the scenario analysis and derived from plot level-data were consistent with observed canopy-height derived carbon changes between 2013 and 2020.
+
+### 3. Summarise each scenario over time for each scenario-start x scenario x production-target combination
+
+We next propagated our posterior regime-by-age carbon library through the landscape scenarios. For posterior draw $r$, scenario $k$, year $t$, and management regime $m$, let $A_{kmt}$ denote the number of parcels assigned to regime $m$ in year $t$, after parcel counts are split across valid harvest-delay variants. Let $a_{kmt}$ denote the age, in years since the relevant intervention, associated with regime $m$ in that scenario-year combination. The quantity $C_m^{(r)}(a_{kmt})$ is then the draw-specific ACD (Mg C ha$^{-1}$) taken directly from the Section 2 posterior trajectory table for management regime $m$ at age $a_{kmt}$. Annual scenario carbon stock was then:
+
+$$
+S_{kt}^{(r)}
+=
+\sum_m
+\left[
+1000 \times A_{kmt} \times C_m^{(r)}(a_{kmt})
+\right],
+$$
+
+where the factor 1000 converts hectare-level carbon density to total carbon per 10km2 parcel. Thus, $S_{kt}^{(r)}$ is total aboveground carbon stock (Mg C) in scenario $k$ at year $t$ under posterior draw $r$.
+
+For the corresponding starting-landscape baseline, let $s(k)$ denote the starting-landscape class associated with scenario $k$, let $A^{0}_{s(k)mt}$ denote the number of parcels in management regime $m$ when that starting landscape is propagated forward under its baseline composition, and let $a^{0}_{s(k)mt}$ denote the corresponding regime age. Annual baseline carbon stock was then:
+
+$$
+B_{s(k)t}^{(r)}
+=
+\sum_m
+\left[
+1000 \times A^{0}_{s(k)mt} \times C_m^{(r)}(a^{0}_{s(k)mt})
+\right].
+$$
+
+Here, $B_{s(k)t}^{(r)}$ is the annual carbon stock of the matched starting-landscape baseline for scenario $k$ under posterior draw $r$. Annual stock change in the scenario and baseline were then:
+
+$$
+\Delta S_{kt}^{(r)} = S_{kt}^{(r)} - S_{k,t-1}^{(r)},
+\qquad
+\Delta B_{s(k)t}^{(r)} = B_{s(k)t}^{(r)} - B_{s(k),t-1}^{(r)}.
+$$
+
+These annual changes were used both to summarise carbon-stock outcomes and to derive CO$_2$-equivalent fluxes for monetised analyses. Fluxes were calculated as:
+
+$$
+F_{kt}^{(r)} = \Delta S_{kt}^{(r)} \times \frac{44.01}{12.01},
+\qquad
+F_{s(k)t}^{(r)} = \Delta B_{s(k)t}^{(r)} \times \frac{44.01}{12.01},
+$$
+
+where $F_{kt}^{(r)}$ and $F_{s(k)t}^{(r)}$ are annual scenario and baseline fluxes in CO$_2$-equivalent units. We multiply by $\tfrac{44.01}{12.01}$ to convert changes in carbon mass to equivalent $\text{CO}_2$ mass, reflecting the ratio of the molecular weight of carbon dioxide (44.01) to carbon alone (12.01).
+
+#### Delta carbon stocks
+
+Our main physical carbon outcome is cumulative delta carbon stock relative to the matched starting-landscape baseline, because this provides the clearest measure of the long-run carbon consequence of choosing one management pathway over another, relative to a no-harvest baseline. For a senario time-horizon window of length $w$, cumulative delta carbon stock was:
+
+$$
+D_{k,w}^{(r)}
+=
+\sum_{t=1}^{w}
+\left(
+S_{kt}^{(r)} - B_{s(k)t}^{(r)}
+\right),
+$$
+
+where $D_{k,w}^{(r)}$ is the cumulative difference in carbon stock (Mg C-years, or equivalently Mg C accumulated over annual time steps) between scenario $k$ and its matched baseline over the first $w$ years of the projection, under posterior draw $r$. Positive values indicate that the scenario retains more carbon than the corresponding starting-landscape baseline, whereas negative values indicate lower retained carbon.
+
+We examined multiple time windows because management effects on carbon may emerge over different timescales depending on the scheduling of managment. A 20-year window captures relatively near-term divergence among scenarios from the baseline landscape, a 40-year window captures medium-term divergence, and a 60-year window captures the full scenario horizon used in the main analysis. We focus primarily on the 60-year window in the main text because it best captures the long-run cumulative carbon consequences of each scenario, while the shorter windows are useful sensitivity checks on how rapidly scenarios diverge.
+
+#### Raw cumulative carbon stock
+
+We also summarise absolute cumulative carbon stock as a complementary sensitivity metric, because it describes total carbon retained across the landscape through time without subtracting the baseline. This was calculated as carbon stock-years:
+
+$$
+G_k^{(r)} = \sum_{t=1}^{T} S_{kt}^{(r)},
+$$
+
+where $G_k^{(r)}$ is the cumulative carbon stock of scenario $k$ over the full horizon $T = 60$ years under posterior draw $r$. Windowed summaries were likewise:
+
+$$
+G_{k,w}^{(r)} = \sum_{t=1}^{w} S_{kt}^{(r)},
+\qquad
+w \in \{20,40,60\}.
+$$
+
+We treat these raw cumulative stock summaries as secondary because they do not reflect the counterfactual impacts of leaving forest unharvested or recovering from the initial baseline landscape composition, and so will tend to underestimate the the potential value of foregoing harvests in native forest.
+
+#### Monetised carbon impacts
+
+We also quantified the monetised societal consequences of annual carbon fluxes using a social cost of carbon (SCC) approach. This was done because physically similar carbon outcomes can imply different economic consequences depending on when carbon is release, sequestered or retained. We characterise the total impact of carbon fluxes associated with each of the alternative production scenarios using forecasts of the social cost of carbon to predict the cumulative long-run cost of the damage (or benefit) caused by releasing (or sequestering) atmospheric CO~2~e, across the scenario lifespan, discounted into present-day terms (discount rates of 2%, 4% and 6%).
+
+Let $\mathrm{SCC}_{td}$ denote the discounted social cost of carbon in year $t$ under discount rate $d$. Annual monetised carbon impact for draw $r$, scenario $k$, and year $t$ was:
+
+$$
+M_{ktd}^{(r)}
+=
+\left(
+F_{kt}^{(r)} - F_{s(k)t}^{(r)}
+\right)\mathrm{SCC}_{td}.
+$$
+
+Here, $M_{ktd}^{(r)}$ is the monetised carbon impact in year $t$ of scenario $k$ relative to its matched baseline, under posterior draw $r$ and discount rate $d$. Total discounted carbon impact over the full horizon was then:
+
+$$
+\mathrm{TOTC}_{kd}^{(r)}
+=
+\sum_{t=1}^{T} M_{ktd}^{(r)}.
+$$
+
+Thus, $\mathrm{TOTC}_{kd}^{(r)}$ represents the total discounted monetary value of the difference in carbon fluxes between scenario $k$ and its matched starting-landscape baseline over 60 years.
+
+#### Posterior summaries
+
+All scenario metrics were summarised across posterior draws for each scenario-start, scenario identity, and production target. For each output we retained posterior means together with central 80% and 95% intervals. In the manuscript figures and text, we primarily report posterior means and 80% intervals.
+
+## Main Text Version
+
+### 1. Survey outcomes across management regimes and time
+
+We quantified carbon across the management regimes primary forest, once-logged forest, restored forest, twice-logged forest and plantations. Data for natural forest regimes came from three independent plot networks within the study landscape, totalling 257 vegetation plots, 51,803 individual tree measurements, and 45.56 ha of sampled forest. These plot data covered primary, once-logged and restored (strip-planted) forest, but did not include a direct twice-logged chronosequence. For primary, once-logged and restored forest, repeated tree censuses from the Philipson *et al.* dataset were converted to aboveground carbon density (ACD) using the Chave forest allometric equation:
+
+$$
+\mathrm{AGB}_{\mathrm{tree}} = 0.0673(\rho D^2 H)^{0.976},
+$$
+
+where $\rho$ is wood density, $D$ is diameter at breast height, and $H$ is tree height. For plantations, we used 405 pre-harvest inventories spanning short-rotation *Eucalyptus pellita* ($n = 267$) and long-rotation *Albizia falcataria* ($n = 138$) stands of different ages since planting (mean plot size = 21.7 ha, s.d. 7.5 ha; total coverage = 9,080 ha; 371,630 trees). These plantation data were converted to ACD from stand-structure data. Because species- or genus-specific plantation allometries would ideally be used but are sparse and potentially non-transferable across studies, we compared Chave et al. derived estimates against available alternative equations, relative to volume-based inventory benchmarks. This evaluation supported the use of Chave for albizia but a genus-specific equation for eucalyptus in the final plantation carbon workflow:
+
+$$
+\mathrm{AGB}_{\mathrm{tree}} = \exp(-2.016 + 2.375 \log D)\times 1.067.
+$$
+
+In all cases, aboveground biomass was converted to carbon density as:
+
+$$
+\mathrm{ACD} = 0.47 \times \mathrm{AGB}.
+$$
+
+Because twice-logged forest was not directly represented in the natural-forest plot network, its carbon trajectories were inferred rather than estimated directly from field censuses. We also conservatively assumed that deforested land contained no aboveground carbon.
+
+### 2. Establish carbon relationships through time
+
+We fitted a unified Bayesian management-regime model to ACD through time, producing posterior carbon trajectories for each regime as a function of years since logging or planting. Primary forest was treated as the reference regime, and all recovering regimes were capped at the corresponding posterior draw-specific primary-forest ACD to impose a biologically plausible upper-bound for carbon recovery. Because the landscape lacked a direct twice-logged chronosequence, twice-logged trajectories were inferred from once-logged posterior draws by estimating carbon loss per unit timber removed in the first harvest, applying that relationship to second-rotation yields, and then allowing twice-logged stands to recover at 0.8, 1.0 or 1.2 times the once-logged recovery slope.
+
+The output of the carbon modelling step was a posterior management-regime-by-age carbon library, $C_m^{(r)}(a)$, giving predicted ACD for management regime $m$, posterior draw $r$, and regime age $a$. As an external validation of model-predicted native-forest recovery dynamics, vegetation-plot-based carbon trajectories were compared with carbon estimates derived from an independent repeat-LiDAR runover within our landscapes, which covered all native forest regimes. These two approaches gave broadly concordant estimates of regime-level ACD recovery.
+
+### 3. Summarise each scenario over time for each scenario-start x scenario x production-target combination
+
+We propagated our posterior carbon library through parcel-based landscape scenarios. For each scenario, year and posterior draw, parcels assigned to management regimes and ages were matched to the corresponding ACD values from $C_m^{(r)}(a)$, and aggregated to annual landscape carbon stock. Each scenario was evaluated against its matched starting-landscape baseline so that carbon outcomes reflected the consequences of management decisions rather than differences in starting conditions alone. Our main physical outcome was 60-year cumulative delta carbon stock relative to the starting landscape baseline, because this provides a clear measure of the long-run carbon consequence of choosing one management pathway over another, relative to a no-harvest counterfactual. We also retained raw cumulative carbon stock-years as a complementary metric.
+
+The future societal climate impacts of different harvesting scenarios depend on the schedule of carbon emissions or drawdowns (hereafter fluxes), relative to an unharvested baseline starting landscape, as well as on the atmospheric and therefore societal impacts of these fluxes through time. To characterise these for alternative production scenarios, we use schedules of the Social Cost of Carbon to estimate the cumulative long-run economic cost of the damage (or benefit) caused to society by releasing (or sequestering) additional atmospheric CO~2~e for each of the 60 years of a scenario. Monetised carbon consequences were calculated by converting annual changes in carbon stock to CO$_2$-equivalent fluxes and valued relative to the same matched baseline using discounted social cost of carbon trajectories under 2%, 4% and 6% discount rates. The total discounted carbon impact t for draw $r$, scenario $k$, and year $t$ was:was calculated as:
+
+Let $\mathrm{SCC}_{td}$ denote the discounted social cost of carbon in year $t$ under discount rate $d$. Annual monetised carbon impact for draw $r$, scenario $k$, and year $t$ was:
+
+$$
+\mathrm{TOTC}_{kd}^{(r)}
+=
+\sum_{t=1}^{T}
+\left(
+F_{kt}^{(r)} - F_{s(k)t}^{(r)}
+\right)\mathrm{SCC}_{td},
+$$
+
+where $F_{kt}^{(r)}$ and $F_{s(k)t}^{(r)}$ are annual scenario and matched-baseline carbon fluxes, and $\mathrm{SCC}_{td}$ is the discounted social cost of carbon in year $t$ under discount rate $d$. All scenario outputs were summarised across posterior draws using posterior means and central uncertainty intervals, with 80% intervals emphasised in the main manuscript.

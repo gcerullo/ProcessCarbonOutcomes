@@ -83,7 +83,30 @@ SSB <- read.csv("RawData/SSB_plot_data.csv") %>%
 # Wood densities
 EP_wd <- 0.629
 AB_wd <- 0.406
-
+# 
+# SSB <- SSB %>%
+#   mutate(
+#     wood_density = case_when(
+#       Species == "EP" ~ EP_wd,
+#       Species == "AF" ~ AB_wd
+#     ),
+#     tree_biomass = 0.0673 * (wood_density * dbh^2 * height)^0.976,
+#     biomass_ha = tree_biomass * live_trees_ha,
+#     AGB = biomass_ha / 1000,
+#     ACD = AGB * 0.47
+#   )
+# 
+# plantation <- SSB %>%
+#   filter(!is.na(ACD), YEAR < 15) %>%
+#   mutate(
+#     state = case_when(
+#       Species == "EP" ~ "plantation_EP",
+#       Species == "AF" ~ "plantation_AF"
+#     ),
+#     time = YEAR,
+#     plot_id = Block.No
+#   ) %>%
+#   select(ACD, time, state, plot_id)
 
 SSB <- SSB %>%
   mutate(
@@ -96,11 +119,9 @@ SSB <- SSB %>%
     # Estimate per-tree aboveground biomass using the species-appropriate equation:
     # - Eucalyptus: use the plantation-specific published allometry
     # - Albizia: use the pantropical Chave equation because we do not have a
-    #   preferred local Albizia equation in this workflow - based on validation in script 00
+    #   preferred local Albizia equation in this workflow
     tree_biomass = case_when(
-      # https://onlinelibrary.wiley.com/doi/epdf/10.1111/gcb.13201
       Species == "EP" ~ exp(-2.016 + 2.375 * log(dbh)) * 1.067,
-      #use chave
       Species == "AF" ~ 0.0673 * (wood_density * dbh^2 * height)^0.976,
       TRUE ~ NA_real_
     ),
